@@ -1,45 +1,61 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
-#include <Update.h>
 
 #include "config.h"
 #include "display/display.h"
 #include "network/wifi_provision.h"
 #include "network/mdns_discovery.h"
 #include "network/ws_client.h"
+#include "system/i18n.h"
+#include "system/settings_manager.h"
+#include "system/health_manager.h"
+#include "system/reset_manager.h"
+#include "system/power_manager.h"
+#include "system/pairing_manager.h"
+#include "system/ota_manager.h"
 #include "ui/ui_manager.h"
+#include "ui/oobe_flow.h"
 
-// ── Application states ──
+// ── Application State Machine ──
 enum class AppState {
-    BOOT,
-    PROVISION,
+    SELF_TEST,
+    OOBE,
     CONNECTING_WIFI,
     WIFI_FAILED,
     DISCOVERING,
     CONNECTING_WS,
+    PAIRING,
     RUNNING,
     RECONNECTING,
+    SAFE_MODE,
 };
 
-static AppState appState = AppState::BOOT;
+static AppState appState = AppState::SELF_TEST;
 static HostInfo hostInfo = {"", 0, false};
 static unsigned long stateEnteredAt = 0;
-static unsigned long lastActivityTime = 0;
+static unsigned long lastHealthReport = 0;
 static unsigned long buttonPressStart = 0;
 static bool buttonHeld = false;
+static char deviceId[20] = "";
 
-static void set_state(AppState newState) {
-    appState = newState;
+static void set_state(AppState s) {
+    appState = s;
     stateEnteredAt = millis();
-    lastActivityTime = millis();
+    power_register_activity();
 }
 
 static unsigned long state_elapsed() {
     return millis() - stateEnteredAt;
 }
 
-// ── Button handling ──
+static void build_device_id() {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    snprintf(deviceId, sizeof(deviceId), "vibepi-%02x%02x%02x", mac[3], mac[4], mac[5]);
+}
+
+// ── Button ──
 static void handle_button() {
     bool pressed = (digitalRead(BUTTON_PIN) == LOW);
 
@@ -51,160 +67,275 @@ static void handle_button() {
     if (!pressed && buttonHeld) {
         unsigned long duration = millis() - buttonPressStart;
         buttonHeld = false;
+        power_register_activity();
 
-        if (duration > 5000) {
-            // Long hold: factory reset
-            Serial.println("[Button] Factory reset triggered");
-            provision_reset();
-            ESP.restart();
+        if (duration > 10000) {
+            // 10s hold → factory reset
+            reset_execute(ResetLevel::FACTORY_RESET, true);
+        } else if (duration > 3000) {
+            // 3s hold → network reset
+            reset_execute(ResetLevel::NETWORK_RESET, true);
         } else if (duration > 100) {
-            // Short press: wake display or cycle page
-            if (ui_is_sleeping()) {
-                ui_wake();
+            // Short press → wake / cycle page
+            if (power_get_state() != PowerState::ACTIVE) {
+                power_force_state(PowerState::ACTIVE);
             } else if (appState == AppState::RUNNING) {
                 int next = (ui_get_current_page() + 1) % ui_get_page_count();
                 ui_set_page(next);
             }
         }
-        lastActivityTime = millis();
     }
 }
 
-// ── Display sleep management ──
-static void check_sleep() {
-    if (appState != AppState::RUNNING) return;
-    if (ui_is_sleeping()) return;
-
-    if (millis() - lastActivityTime > DISPLAY_SLEEP_TIMEOUT_MS) {
-        ui_sleep();
+// ── WiFi scan callback for OOBE ──
+static void check_wifi_scan_result() {
+    int16_t result = WiFi.scanComplete();
+    if (result == WIFI_SCAN_RUNNING) return;
+    if (result >= 0) {
+        oobe_on_wifi_scan_done(result);
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
+static void check_wifi_connect_result() {
+    if (WiFi.status() == WL_CONNECTED) {
+        oobe_on_wifi_connected(WiFi.localIP().toString().c_str());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 void setup() {
     Serial.begin(115200);
     delay(300);
-    Serial.printf("\n[VibePi] Booting v%s\n", FW_VERSION);
+    Serial.printf("\n[VibePi] Boot v%s (protocol v%d)\n", FW_VERSION, PROTOCOL_VERSION);
 
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-    // Watchdog: 30s timeout
+    // Watchdog
     esp_task_wdt_config_t wdt_cfg = {
-        .timeout_ms = 30000,
+        .timeout_ms = WATCHDOG_TIMEOUT_MS,
         .idle_core_mask = 0,
         .trigger_panic = true,
     };
     esp_task_wdt_init(&wdt_cfg);
     esp_task_wdt_add(nullptr);
 
+    // Init systems (order matters)
+    settings_init();
+    health_init();
+    ota_init();
+
     display_init();
     ui_init();
+
+    build_device_id();
+    Serial.printf("[VibePi] Device ID: %s\n", deviceId);
+
+    // Self-test
+    set_state(AppState::SELF_TEST);
     ui_show_boot();
     lv_timer_handler();
-
-    provision_init();
-
-    delay(1500); // show boot splash
-
-    if (provision_is_configured()) {
-        set_state(AppState::CONNECTING_WIFI);
-        ui_show_connecting_wifi();
-    } else {
-        set_state(AppState::PROVISION);
-        provision_start_ap();
-        ui_show_provision(provision_get_ap_ssid().c_str(),
-                          WiFi.softAPIP().toString().c_str());
-    }
 }
 
 void loop() {
     esp_task_wdt_reset();
     lv_timer_handler();
     handle_button();
-    check_sleep();
 
     switch (appState) {
 
-        case AppState::PROVISION:
-            provision_loop();
-            break;
+    // ── SELF TEST ──
+    case AppState::SELF_TEST: {
+        SelfTestResult result = health_run_self_test();
 
-        case AppState::CONNECTING_WIFI:
+        if (health_is_safe_mode()) {
+            Serial.println("[App] Entering SAFE MODE");
+            set_state(AppState::SAFE_MODE);
+            ui_show_safe_mode();
+            break;
+        }
+
+        if (result != SelfTestResult::PASS) {
+            Serial.printf("[App] Self-test failed: %d\n", (int)result);
+            // Continue anyway for non-critical failures
+        }
+
+        pairing_init();
+        power_init();
+
+        if (!settings_get().oobe_done) {
+            set_state(AppState::OOBE);
+            oobe_init();
+            oobe_show();
+        } else {
+            set_state(AppState::CONNECTING_WIFI);
+            ui_show_connecting_wifi();
+        }
+        break;
+    }
+
+    // ── OOBE (first-run wizard) ──
+    case AppState::OOBE: {
+        oobe_loop();
+        check_wifi_scan_result();
+
+        if (oobe_get_step() == OobeStep::WIFI_CONNECTING) {
+            if (WiFi.status() == WL_CONNECTED) {
+                oobe_on_wifi_connected(WiFi.localIP().toString().c_str());
+                mdns_discovery_init();
+
+                // Auto-discover and connect for pairing
+                hostInfo = mdns_discover_host();
+                if (hostInfo.found) {
+                    ws_client_init(hostInfo.host.c_str(), hostInfo.port);
+                }
+            } else if (state_elapsed() > WIFI_CONNECT_TIMEOUT_MS) {
+                oobe_on_wifi_failed();
+            }
+        }
+
+        if (oobe_is_finished()) {
+            if (pairing_is_paired()) {
+                set_state(AppState::RUNNING);
+                ui_show_dashboard();
+            } else {
+                set_state(AppState::CONNECTING_WIFI);
+                ui_show_connecting_wifi();
+            }
+        }
+        break;
+    }
+
+    // ── CONNECTING WIFI ──
+    case AppState::CONNECTING_WIFI: {
+        provision_init();
+        if (provision_is_configured()) {
             if (provision_connect_saved()) {
                 Serial.printf("[WiFi] Connected: %s\n", WiFi.localIP().toString().c_str());
                 mdns_discovery_init();
                 set_state(AppState::DISCOVERING);
                 ui_show_discovering();
             } else {
-                Serial.println("[WiFi] Connection failed");
                 set_state(AppState::WIFI_FAILED);
                 ui_show_wifi_failed();
             }
-            break;
+        } else {
+            // No WiFi config — go to OOBE
+            set_state(AppState::OOBE);
+            oobe_init();
+            oobe_show();
+        }
+        break;
+    }
 
-        case AppState::WIFI_FAILED:
-            // After 10s, retry. Long button press resets.
-            if (state_elapsed() > 10000) {
-                set_state(AppState::CONNECTING_WIFI);
-                ui_show_connecting_wifi();
-            }
-            break;
+    // ── WIFI FAILED ──
+    case AppState::WIFI_FAILED:
+        if (state_elapsed() > 10000) {
+            set_state(AppState::CONNECTING_WIFI);
+            ui_show_connecting_wifi();
+        }
+        break;
 
-        case AppState::DISCOVERING:
+    // ── DISCOVERING HOST ──
+    case AppState::DISCOVERING: {
+        DeviceSettings &s = settings_get();
+
+        // If we have a saved host address, try it directly
+        if (strlen(s.host_addr) > 0 && !hostInfo.found) {
+            hostInfo.host = String(s.host_addr);
+            hostInfo.port = s.host_port;
+            hostInfo.found = true;
+            Serial.printf("[App] Using saved host: %s:%d\n", s.host_addr, s.host_port);
+        }
+
+        if (!hostInfo.found) {
             hostInfo = mdns_discover_host();
-            if (hostInfo.found) {
-                set_state(AppState::CONNECTING_WS);
-                ws_client_init(hostInfo.host.c_str(), hostInfo.port);
-            } else {
-                // Retry discovery every 3s
-                if (state_elapsed() > 3000) {
-                    stateEnteredAt = millis();
+        }
+
+        if (hostInfo.found) {
+            set_state(AppState::CONNECTING_WS);
+            ws_client_init(hostInfo.host.c_str(), hostInfo.port);
+        } else if (state_elapsed() > 5000) {
+            stateEnteredAt = millis(); // retry
+        }
+        break;
+    }
+
+    // ── CONNECTING WS ──
+    case AppState::CONNECTING_WS:
+        ws_client_loop();
+        if (ws_client_is_connected()) {
+            if (!pairing_is_paired()) {
+                set_state(AppState::PAIRING);
+                // Pairing code already generated during OOBE or generate now
+                if (strlen(pairing_get_code()) == 0) {
+                    pairing_generate_code();
                 }
-            }
-            break;
-
-        case AppState::CONNECTING_WS:
-            ws_client_loop();
-            if (ws_client_is_connected()) {
-                Serial.println("[App] Fully connected — entering run mode");
-                set_state(AppState::RUNNING);
-            } else if (state_elapsed() > 15000) {
-                Serial.println("[App] WS connect timeout, re-discovering");
-                set_state(AppState::DISCOVERING);
-                ui_show_discovering();
-            }
-            break;
-
-        case AppState::RUNNING:
-            ws_client_loop();
-
-            if (!ws_client_is_connected()) {
-                set_state(AppState::RECONNECTING);
-                ui_show_reconnecting();
-                break;
-            }
-
-            // Check for stale data
-            if (ws_client_last_status_time() > 0 &&
-                millis() - ws_client_last_status_time() > STATUS_STALE_TIMEOUT_MS) {
-                // Could show "stale" indicator on UI
-            }
-            break;
-
-        case AppState::RECONNECTING:
-            ws_client_loop();
-            if (ws_client_is_connected()) {
+                ui_show_pairing(pairing_get_code());
+            } else {
                 set_state(AppState::RUNNING);
                 ui_show_dashboard();
-            } else if (state_elapsed() > 30000) {
-                // After 30s reconnect failure, re-discover
-                set_state(AppState::DISCOVERING);
-                ui_show_discovering();
+                Serial.println("[App] Connected and paired — RUNNING");
             }
-            break;
+        } else if (state_elapsed() > 15000) {
+            set_state(AppState::DISCOVERING);
+            hostInfo.found = false;
+            ui_show_discovering();
+        }
+        break;
 
-        default:
+    // ── PAIRING ──
+    case AppState::PAIRING:
+        ws_client_loop();
+        pairing_loop();
+
+        if (pairing_is_paired()) {
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+        } else if (pairing_get_state() == PairState::TIMEOUT) {
+            pairing_generate_code();
+            ui_show_pairing(pairing_get_code());
+        }
+        break;
+
+    // ── RUNNING ──
+    case AppState::RUNNING:
+        ws_client_loop();
+        power_loop();
+
+        if (!ws_client_is_connected()) {
+            set_state(AppState::RECONNECTING);
+            ui_show_reconnecting();
             break;
+        }
+
+        // Periodic health report
+        if (millis() - lastHealthReport > HEALTH_REPORT_INTERVAL_MS) {
+            lastHealthReport = millis();
+            JsonDocument doc;
+            health_build_report(doc, deviceId);
+            ws_client_send_json(doc);
+        }
+        break;
+
+    // ── RECONNECTING ──
+    case AppState::RECONNECTING:
+        ws_client_loop();
+        power_loop();
+
+        if (ws_client_is_connected()) {
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+        } else if (state_elapsed() > 30000) {
+            set_state(AppState::DISCOVERING);
+            hostInfo.found = false;
+            ui_show_discovering();
+        }
+        break;
+
+    // ── SAFE MODE ──
+    case AppState::SAFE_MODE:
+        // Minimal operation — only handle button for factory reset
+        break;
     }
 
     delay(5);

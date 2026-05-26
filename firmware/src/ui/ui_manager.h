@@ -8,12 +8,13 @@ void ui_init();
 
 // ── Screen transitions ──
 void ui_show_boot();
-void ui_show_provision(const char *ap_ssid, const char *ap_ip);
 void ui_show_connecting_wifi();
 void ui_show_wifi_failed();
 void ui_show_discovering();
 void ui_show_reconnecting();
 void ui_show_dashboard();
+void ui_show_pairing(const char *code);
+void ui_show_safe_mode();
 
 // ── Data updates ──
 void ui_update_status(JsonObject &payload);

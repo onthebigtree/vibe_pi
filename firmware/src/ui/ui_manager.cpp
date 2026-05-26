@@ -1,5 +1,7 @@
 #include "ui_manager.h"
 #include "theme.h"
+#include "../system/i18n.h"
+#include "../system/settings_manager.h"
 #include "config.h"
 
 // ── Screen objects ──
@@ -607,3 +609,80 @@ void ui_wake() {
 }
 
 bool ui_is_sleeping() { return sleeping; }
+
+// ── Pairing screen ──
+
+void ui_show_pairing(const char *code) {
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
+    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, i18n(S_PAIRING));
+    lv_obj_set_style_text_color(title, CLR_TEXT_PRIMARY, 0);
+    lv_obj_set_style_text_font(title, FONT_LARGE, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -80);
+
+    lv_obj_t *codeLabel = lv_label_create(scr);
+    char formatted[16];
+    if (code && strlen(code) >= 6) {
+        snprintf(formatted, sizeof(formatted), "%c%c%c  %c%c%c",
+                 code[0], code[1], code[2], code[3], code[4], code[5]);
+    } else {
+        strlcpy(formatted, code ? code : "------", sizeof(formatted));
+    }
+    lv_label_set_text(codeLabel, formatted);
+    lv_obj_set_style_text_color(codeLabel, CLR_ACCENT, 0);
+    lv_obj_set_style_text_font(codeLabel, FONT_TITLE, 0);
+    lv_obj_set_style_text_letter_space(codeLabel, 6, 0);
+    lv_obj_align(codeLabel, LV_ALIGN_CENTER, 0, -20);
+
+    lv_obj_t *hint = lv_label_create(scr);
+    lv_label_set_text(hint, i18n(S_PAIR_WAIT));
+    lv_obj_set_style_text_color(hint, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(hint, FONT_SMALL, 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(hint, 320);
+    lv_obj_align(hint, LV_ALIGN_CENTER, 0, 30);
+
+    lv_obj_t *spinner = lv_spinner_create(scr);
+    lv_obj_set_size(spinner, 30, 30);
+    lv_obj_set_style_arc_color(spinner, CLR_SURFACE_ALT, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner, CLR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(spinner, 3, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 3, LV_PART_INDICATOR);
+    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 75);
+
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+}
+
+// ── Safe mode screen ──
+
+void ui_show_safe_mode() {
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
+    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+
+    lv_obj_t *icon = lv_label_create(scr);
+    lv_label_set_text(icon, LV_SYMBOL_WARNING);
+    lv_obj_set_style_text_color(icon, CLR_WARNING, 0);
+    lv_obj_set_style_text_font(icon, FONT_TITLE, 0);
+    lv_obj_align(icon, LV_ALIGN_CENTER, 0, -50);
+
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, i18n(S_SAFE_MODE));
+    lv_obj_set_style_text_color(title, CLR_WARNING, 0);
+    lv_obj_set_style_text_font(title, FONT_LARGE, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t *hint = lv_label_create(scr);
+    lv_label_set_text(hint, "Hold button 10s\nto factory reset");
+    lv_obj_set_style_text_color(hint, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(hint, FONT_SMALL, 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(hint, LV_ALIGN_CENTER, 0, 50);
+
+    lv_screen_load(scr);
+}

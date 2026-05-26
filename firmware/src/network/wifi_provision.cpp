@@ -102,9 +102,9 @@ static void handleConnect() {
 
     if (WiFi.status() == WL_CONNECTED) {
         prefs.begin(NVS_NAMESPACE, false);
-        prefs.putString(NVS_KEY_WIFI_SSID, ssid);
-        prefs.putString(NVS_KEY_WIFI_PASS, pass);
-        prefs.putBool(NVS_KEY_SETUP_DONE, true);
+        prefs.putString(NVS_WIFI_SSID, ssid);
+        prefs.putString(NVS_WIFI_PASS, pass);
+        prefs.putBool(NVS_OOBE_DONE, true);
         prefs.end();
 
         String ip = WiFi.localIP().toString();
@@ -128,8 +128,8 @@ static void handleNotFound() {
 
 void provision_init() {
     prefs.begin(NVS_NAMESPACE, true);
-    savedSSID = prefs.getString(NVS_KEY_WIFI_SSID, "");
-    savedPass = prefs.getString(NVS_KEY_WIFI_PASS, "");
+    savedSSID = prefs.getString(NVS_WIFI_SSID, "");
+    savedPass = prefs.getString(NVS_WIFI_PASS, "");
     prefs.end();
 
     uint8_t mac[6];

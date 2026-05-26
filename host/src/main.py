@@ -1,6 +1,5 @@
 """Vibe Pi Host Agent — collects AI tool status and pushes to ESP32 display."""
 
-import argparse
 import asyncio
 import logging
 import logging.handlers
@@ -8,16 +7,18 @@ import signal
 import sys
 from pathlib import Path
 
+from .cli import build_parser, handle_devices, handle_ota, __version__
 from .config import AppConfig, init_config, load_config
 from .collectors import ClaudeCodeCollector, CodexCollector, GeminiCLICollector, SystemCollector
 from .collectors.base import BaseCollector
+from .device_registry import DeviceRegistry
+from .pairing import PairingManager
+from .ota_server import OTAManager
 from .server.ws_server import StatusServer
 from .server.mdns import MDNSAdvertiser
 from .server.web_dashboard import WebDashboard
 
 logger = logging.getLogger("vibe-pi")
-
-__version__ = "0.1.0"
 
 
 def build_collectors(cfg: AppConfig) -> list[BaseCollector]:
@@ -46,8 +47,7 @@ def setup_logging(cfg: AppConfig):
 
     if cfg.logging.file:
         fh = logging.handlers.RotatingFileHandler(
-            cfg.logging.file, maxBytes=5 * 1024 * 1024, backupCount=3
-        )
+            cfg.logging.file, maxBytes=5 * 1024 * 1024, backupCount=3)
         fh.setFormatter(fmt)
         root.addHandler(fh)
 
@@ -56,12 +56,15 @@ async def run(cfg: AppConfig):
     collectors = build_collectors(cfg)
     collector_names = [c.name for c in collectors]
 
+    registry = DeviceRegistry()
+    pairing_mgr = PairingManager(registry)
+
     server = StatusServer(
-        host=cfg.server.host,
-        port=cfg.server.port,
+        host=cfg.server.host, port=cfg.server.port,
         collector_names=collector_names,
+        registry=registry, pairing_mgr=pairing_mgr,
     )
-    server.set_default_device_config({
+    server.set_default_config({
         "poll_interval_ms": int(cfg.polling.interval * 1000),
         "brightness": cfg.display.brightness,
         "theme": cfg.display.theme,
@@ -70,16 +73,19 @@ async def run(cfg: AppConfig):
 
     mdns = MDNSAdvertiser(port=cfg.server.port, host_version=__version__) if cfg.server.mdns else None
     dashboard = WebDashboard(ws_port=cfg.server.port)
+    ota = OTAManager()
 
     await server.start()
     if mdns:
         await mdns.start()
     await dashboard.start()
+    await ota.start()
 
-    logger.info(f"Vibe Pi Host Agent v{__version__}")
-    logger.info(f"Active collectors: {', '.join(c.display_name for c in collectors)}")
-    logger.info(f"Polling interval: {cfg.polling.interval}s")
-    logger.info("Waiting for ESP32 device to connect...")
+    logger.info(f"Vibe Pi Host Agent v{__version__} (protocol v2)")
+    logger.info(f"Collectors: {', '.join(c.display_name for c in collectors)}")
+    logger.info(f"Polling: {cfg.polling.interval}s")
+    logger.info(f"Registered devices: {len(registry.get_all())}")
+    logger.info("Waiting for device connections...")
 
     try:
         while True:
@@ -93,10 +99,8 @@ async def run(cfg: AppConfig):
                 except Exception as e:
                     logger.warning(f"Collector {collector.name} error: {e}")
                     continue
-
                 if data is None:
                     continue
-
                 if collector.name == "system":
                     system_data = data
                 else:
@@ -112,39 +116,42 @@ async def run(cfg: AppConfig):
     except asyncio.CancelledError:
         pass
     finally:
+        await ota.stop()
         await dashboard.stop()
         if mdns:
             await mdns.stop()
         await server.stop()
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="vibe-pi-host",
-        description="Vibe Pi Host Agent — AI coding tool status monitor",
-    )
-    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("-c", "--config", type=Path, help="Config file path (TOML)")
-    parser.add_argument("-p", "--port", type=int, help="WebSocket server port (default: 8765)")
-    parser.add_argument("--init-config", action="store_true", help="Create default config file and exit")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    return parser.parse_args()
-
-
 def main():
-    args = parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
 
-    if args.init_config:
-        path = init_config(args.config)
-        print(f"Config file created at: {path}")
-        sys.exit(0)
+    command = args.command or "run"
 
-    cfg = load_config(args.config)
+    if command == "init":
+        path = init_config(args.config if hasattr(args, "config") else None)
+        print(f"Config created: {path}")
+        return
 
-    if args.debug:
+    if command == "devices":
+        handle_devices(args)
+        return
+
+    if command == "ota":
+        handle_ota(args)
+        return
+
+    if command == "pair":
+        # Interactive pairing requires running server — print instructions
+        print(f"To confirm pairing for {args.device_id} with code {args.code}:")
+        print("The host agent must be running. Pairing confirmation happens via the web dashboard.")
+        return
+
+    # Default: run
+    cfg = load_config(getattr(args, "config", None))
+    if getattr(args, "debug", False):
         cfg.logging.level = "DEBUG"
-    if args.port:
-        cfg.server.port = args.port
 
     setup_logging(cfg)
 

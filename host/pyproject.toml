@@ -1,7 +1,7 @@
 [project]
 name = "vibe-pi-host"
-version = "0.1.0"
-description = "Host agent for Vibe Pi — collects AI coding tool status and pushes to ESP32 AMOLED display"
+version = "0.2.0"
+description = "Host agent for Vibe Pi — AI coding tool status monitor for ESP32-S3 AMOLED display"
 requires-python = ">=3.11"
 license = "MIT"
 

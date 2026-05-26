@@ -17,6 +17,9 @@
 #define LV_USE_BTN       1
 #define LV_USE_IMG       1
 #define LV_USE_TILEVIEW  1
+#define LV_USE_TEXTAREA  1
+#define LV_USE_KEYBOARD  1
+#define LV_USE_BAR       1
 
 // Memory (128KB from PSRAM)
 #define LV_MEM_SIZE (128 * 1024)
