@@ -1,6 +1,15 @@
+"""Claude Code status collector.
+
+Reads local Claude Code state from:
+- ~/.claude/ directory structure
+- Running process detection
+- Session/project JSON files
+"""
+
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -8,115 +17,127 @@ from .base import BaseCollector
 
 
 class ClaudeCodeCollector(BaseCollector):
-    """Collects Claude Code session status by reading local state files."""
+    name = "claude_code"
+    display_name = "Claude Code"
 
-    name = "Claude Code"
-
-    def __init__(self):
+    def __init__(self, daily_budget: float = 5.0):
         self._home = Path.home()
         self._claude_dir = self._home / ".claude"
+        self._daily_budget = daily_budget
+        self._last_process_check = 0.0
+        self._cached_running = False
 
     async def collect(self) -> dict[str, Any] | None:
-        status = {
-            "tool": self.name,
-            "status": "inactive",
+        is_running = self._is_running()
+
+        result = {
+            "status": "active" if is_running else "inactive",
             "model": "",
-            "tokens": "0",
-            "cost": "$0.00",
+            "tokens_used": 0,
+            "tokens_display": "0",
+            "cost_usd": 0.0,
+            "cost_display": "$0.00",
             "usage_pct": 0,
-            "sessions": 0,
+            "session_count": 0,
+            "current_task": "",
+            "uptime_min": 0,
         }
 
-        if not self._is_running():
-            return status
+        session = self._find_active_session()
+        if session:
+            result.update(session)
 
-        status["status"] = "active"
-
-        usage = self._read_usage()
+        usage = self._read_usage_data()
         if usage:
-            status.update(usage)
+            result.update(usage)
 
-        session_info = self._read_active_session()
-        if session_info:
-            status.update(session_info)
-
-        return status
+        return result
 
     def _is_running(self) -> bool:
+        now = time.time()
+        if now - self._last_process_check < 3.0:
+            return self._cached_running
+        self._last_process_check = now
+
         try:
             result = subprocess.run(
-                ["pgrep", "-f", "claude"],
-                capture_output=True,
-                text=True,
-                timeout=2,
+                ["pgrep", "-fl", "claude"],
+                capture_output=True, text=True, timeout=2,
             )
-            return result.returncode == 0
+            self._cached_running = result.returncode == 0
         except Exception:
-            return False
+            self._cached_running = False
+        return self._cached_running
 
-    def _read_usage(self) -> dict[str, Any] | None:
-        # CC Switch reads from ~/.claude/usage/ or similar paths
-        # Claude Code stores session data in ~/.claude/projects/
-        usage_patterns = [
-            self._claude_dir / "usage.json",
-            self._claude_dir / "statsig" / "usage.json",
-        ]
-
-        for path in usage_patterns:
-            if path.exists():
-                try:
-                    data = json.loads(path.read_text())
-                    return self._parse_usage(data)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-        return None
-
-    def _parse_usage(self, data: dict) -> dict[str, Any]:
-        total_tokens = data.get("total_tokens", 0)
-        total_cost = data.get("total_cost", 0.0)
-
-        # Estimate usage percentage (based on typical daily limits)
-        usage_pct = min(int((total_cost / 5.0) * 100), 100)
-
-        return {
-            "tokens": self._format_tokens(total_tokens),
-            "cost": f"${total_cost:.2f}",
-            "usage_pct": usage_pct,
-        }
-
-    def _read_active_session(self) -> dict[str, Any] | None:
+    def _find_active_session(self) -> dict[str, Any] | None:
         projects_dir = self._claude_dir / "projects"
         if not projects_dir.exists():
             return None
 
-        latest_session = None
+        latest_file = None
         latest_mtime = 0
 
-        for project_dir in projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-            for session_file in project_dir.glob("*.json"):
-                mtime = session_file.stat().st_mtime
-                if mtime > latest_mtime:
-                    latest_mtime = mtime
-                    latest_session = session_file
+        try:
+            for project_dir in projects_dir.iterdir():
+                if not project_dir.is_dir():
+                    continue
+                for f in project_dir.iterdir():
+                    if f.suffix == ".json" and f.stat().st_mtime > latest_mtime:
+                        latest_mtime = f.stat().st_mtime
+                        latest_file = f
+        except (PermissionError, OSError):
+            return None
 
-        if not latest_session:
+        if not latest_file:
+            return None
+
+        age_min = (time.time() - latest_mtime) / 60.0
+        if age_min > 60:
             return None
 
         try:
-            data = json.loads(latest_session.read_text())
+            data = json.loads(latest_file.read_text())
             return {
-                "model": data.get("model", "unknown"),
-                "sessions": 1,
+                "model": data.get("model", ""),
+                "current_task": data.get("task", data.get("summary", "")),
+                "session_count": 1,
+                "uptime_min": int(age_min) if age_min < 60 else 0,
             }
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, OSError):
             return None
 
-    @staticmethod
-    def _format_tokens(n: int) -> str:
-        if n >= 1_000_000:
-            return f"{n / 1_000_000:.1f}M tokens"
-        if n >= 1_000:
-            return f"{n / 1_000:.1f}K tokens"
-        return f"{n} tokens"
+    def _read_usage_data(self) -> dict[str, Any] | None:
+        search_paths = [
+            self._claude_dir / "usage.json",
+            self._claude_dir / "statsig" / "usage.json",
+            self._claude_dir / "analytics" / "usage.json",
+        ]
+
+        for path in search_paths:
+            if not path.exists():
+                continue
+            try:
+                data = json.loads(path.read_text())
+                tokens = data.get("total_tokens", data.get("tokens", 0))
+                cost = data.get("total_cost", data.get("cost", 0.0))
+                usage_pct = min(int((cost / self._daily_budget) * 100), 100) if self._daily_budget > 0 else 0
+
+                return {
+                    "tokens_used": tokens,
+                    "tokens_display": _format_number(tokens, "tokens"),
+                    "cost_usd": cost,
+                    "cost_display": f"${cost:.2f}",
+                    "usage_pct": usage_pct,
+                }
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
+        return None
+
+
+def _format_number(n: int | float, unit: str = "") -> str:
+    suffix = f" {unit}" if unit else ""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M{suffix}"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K{suffix}"
+    return f"{int(n)}{suffix}"

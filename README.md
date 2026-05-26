@@ -1,6 +1,16 @@
 # Vibe Pi
 
-ESP32-S3 圆形 AMOLED 硬件状态监视器，实时显示 Claude Code、Codex 等 AI 编程工具的运行状态。
+ESP32-S3 圆形 AMOLED 硬件状态监视器，实时显示 Claude Code、Codex、Gemini CLI 等 AI 编程工具的运行状态。
+
+## 功能
+
+- **实时监控**: Claude Code / Codex / Gemini CLI 运行状态、token 用量、费用
+- **系统资源**: CPU、内存、网络流量实时监控
+- **自动发现**: mDNS 零配置，设备自动发现主机
+- **WiFi 配网**: 首次使用通过手机配网，无需修改代码
+- **触摸交互**: 左右滑动切换页面，支持屏幕休眠/唤醒
+- **Web 面板**: 浏览器端实时预览状态
+- **可扩展**: 插件化采集器架构，轻松添加新工具支持
 
 ## 硬件
 
@@ -14,81 +24,118 @@ ESP32-S3 圆形 AMOLED 硬件状态监视器，实时显示 Claude Code、Codex 
 ## 架构
 
 ```
-┌─────────────────┐     WebSocket      ┌──────────────────┐
-│   Host Agent    │ ──────────────────> │   ESP32-S3       │
-│   (Python)      │     Wi-Fi          │   AMOLED Display  │
-│                 │                     │                   │
-│ - Claude Code   │                     │ - Status UI       │
-│ - Codex         │                     │ - Touch Control   │
-│ - Gemini CLI    │                     │ - Auto Refresh    │
-│ - Token Usage   │                     │                   │
-│ - System Stats  │                     │                   │
-└─────────────────┘                     └──────────────────┘
+┌────────────────────┐                    ┌────────────────────┐
+│   Host Agent       │    WebSocket       │   ESP32-S3         │
+│   (Python)         │ ────────────────>  │   AMOLED Display   │
+│                    │    Wi-Fi           │                    │
+│ ┌────────────────┐ │    mDNS discovery  │ ┌────────────────┐ │
+│ │ Collectors     │ │                    │ │ LVGL UI        │ │
+│ │ · Claude Code  │ │                    │ │ · Overview     │ │
+│ │ · Codex        │ │                    │ │ · Tool Detail  │ │
+│ │ · Gemini CLI   │ │                    │ │ · System       │ │
+│ │ · System       │ │                    │ │ (swipe nav)    │ │
+│ └────────────────┘ │                    │ └────────────────┘ │
+│ ┌────────────────┐ │                    │ ┌────────────────┐ │
+│ │ WebSocket Srv  │ │                    │ │ WiFi Provision │ │
+│ │ mDNS Advertise │ │                    │ │ mDNS Discovery │ │
+│ │ Web Dashboard  │ │                    │ │ NVS Settings   │ │
+│ └────────────────┘ │                    │ │ Watchdog       │ │
+└────────────────────┘                    │ └────────────────┘ │
+                                          └────────────────────┘
 ```
-
-### Host Agent (`host/`)
-
-运行在开发机上的 Python 服务，负责：
-- 采集 Claude Code / Codex / Gemini CLI 等工具的运行状态
-- 读取 token 用量、费用、请求历史
-- 监控会话状态和活跃度
-- 通过 WebSocket 将数据推送到 ESP32 设备
-
-### Firmware (`firmware/`)
-
-ESP32-S3 固件，基于 PlatformIO + Arduino + LVGL：
-- 连接 Wi-Fi 并接收 WebSocket 推送
-- 在 466x466 圆形 AMOLED 上渲染极简状态仪表盘
-- 支持触摸交互切换显示页面
-- 低功耗待机模式
-
-## 显示内容
-
-- **总览页**: 当前活跃工具、总 token 用量、费用趋势
-- **Claude Code 页**: 会话状态、模型、token 消耗、当前任务
-- **Codex 页**: 任务队列、运行进度
-- **系统页**: CPU/内存、网络状态、API 延迟
 
 ## 快速开始
 
-### Host Agent
+详见 [Quick Start Guide](docs/QUICK_START.md)
+
+### 1. 烧录固件
 
 ```bash
-cd host
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+pip install platformio
+cd firmware && pio run -t upload
+```
+
+### 2. 安装主机 Agent
+
+```bash
+cd host && pip install -e '.[web]'
+```
+
+### 3. 启动
+
+```bash
 vibe-pi-host
 ```
 
-### Firmware
+### 4. 设备配网
 
-需要 [PlatformIO](https://platformio.org/)：
+首次启动设备会创建 WiFi 热点 `VibePi-XXXXXX`，手机连接后自动弹出配网页面。
+
+## 显示页面
+
+| 页面 | 内容 |
+|------|------|
+| **Overview** | 活跃工具名称、模型、token 消耗、费用、用量弧形进度 |
+| **Detail** | 当前任务、会话数、运行时长、用量百分比 |
+| **System** | CPU/内存仪表盘、网络上下行速度 |
+
+## 交互
+
+- **左右滑动**: 切换页面
+- **短按按钮**: 切换页面 / 唤醒屏幕
+- **长按按钮 (5s)**: 恢复出厂设置
+
+## 通信协议
+
+Host ↔ Device 使用 WebSocket JSON 协议，详见 [protocol.md](protocol.md)。
+
+支持：版本握手、设备注册、心跳检测、指数退避重连、OTA 固件更新。
+
+## 配置
 
 ```bash
-cd firmware
-pio run -t upload
+vibe-pi-host --init-config  # 创建默认配置文件
 ```
 
-## 开发
+详见 [Configuration Guide](docs/CONFIGURATION.md)
+
+## 项目结构
 
 ```
 vibe_pi/
-├── firmware/          # ESP32-S3 PlatformIO 项目
+├── firmware/                # ESP32-S3 PlatformIO 项目
 │   ├── platformio.ini
-│   ├── src/
-│   │   ├── main.cpp
-│   │   ├── display/   # 屏幕驱动 & LVGL
-│   │   ├── network/   # Wi-Fi & WebSocket
-│   │   └── ui/        # UI 页面
-│   └── lib/
-├── host/              # 主机端 Python agent
+│   ├── include/config.h     # 引脚定义、时序常量
+│   └── src/
+│       ├── main.cpp         # 状态机主循环
+│       ├── display/         # CO5300 AMOLED + LVGL 初始化
+│       ├── network/
+│       │   ├── wifi_provision  # 配网 (AP + captive portal)
+│       │   ├── mdns_discovery  # mDNS 自动发现
+│       │   └── ws_client       # WebSocket 协议客户端
+│       └── ui/
+│           ├── theme          # 设计系统 (颜色、字体、间距)
+│           └── ui_manager     # 多页面 UI (tileview + swipe)
+├── host/                    # Python 主机 Agent
 │   ├── pyproject.toml
 │   └── src/
-│       ├── collectors/ # 各工具状态采集器
-│       ├── server/     # WebSocket 服务
-│       └── main.py
-├── docs/
+│       ├── main.py          # CLI 入口、事件循环
+│       ├── config.py        # TOML 配置管理
+│       ├── protocol.py      # 消息构建与解析
+│       ├── collectors/      # 状态采集器
+│       │   ├── claude_code  # Claude Code 会话/用量
+│       │   ├── codex        # OpenAI Codex
+│       │   ├── gemini_cli   # Google Gemini CLI
+│       │   └── system       # CPU/内存/网络
+│       └── server/
+│           ├── ws_server     # WebSocket 服务 + 设备管理
+│           ├── mdns          # mDNS 服务广播
+│           └── web_dashboard # 浏览器状态面板
+├── protocol.md              # 通信协议规范
+├── docs/                    # 用户文档
+│   ├── QUICK_START.md
+│   ├── CONFIGURATION.md
+│   └── TROUBLESHOOTING.md
 └── README.md
 ```
 

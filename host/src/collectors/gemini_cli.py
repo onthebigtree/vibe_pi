@@ -1,4 +1,4 @@
-"""OpenAI Codex CLI status collector."""
+"""Gemini CLI status collector."""
 
 import subprocess
 import time
@@ -7,9 +7,9 @@ from typing import Any
 from .base import BaseCollector
 
 
-class CodexCollector(BaseCollector):
-    name = "codex"
-    display_name = "Codex"
+class GeminiCLICollector(BaseCollector):
+    name = "gemini_cli"
+    display_name = "Gemini CLI"
 
     def __init__(self):
         self._last_check = 0.0
@@ -37,7 +37,7 @@ class CodexCollector(BaseCollector):
 
         try:
             result = subprocess.run(
-                ["pgrep", "-fl", "codex"],
+                ["pgrep", "-fl", "gemini"],
                 capture_output=True, text=True, timeout=2,
             )
             self._cached_running = result.returncode == 0
