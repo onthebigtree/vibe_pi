@@ -1,5 +1,7 @@
 #include "serial_config.h"
 #include "../system/settings_manager.h"
+#include "../system/health_manager.h"
+#include "../system/reset_manager.h"
 #include "../system/i18n.h"
 #include "config.h"
 #include <ArduinoJson.h>
@@ -101,6 +103,40 @@ static void handle_cmd(JsonDocument &doc) {
                       s.device_name,
                       s.sleep_timeout_ms,
                       s.theme);
+    }
+    else if (strcmp(cmd, "reset") == 0) {
+        int level = doc["level"] | 0;
+        if (level >= 0 && level <= 3) {
+            Serial.printf("{\"ok\":true,\"reset_level\":%d}\n", level);
+            delay(200);
+            reset_execute((ResetLevel)level, true);
+        }
+    }
+    else if (strcmp(cmd, "diagnostics") == 0) {
+        HealthData hd = health_get_data();
+        DeviceSettings &s = settings_get();
+        Serial.printf("{\"ok\":true,\"uptime_sec\":%lu,\"free_heap\":%lu,\"wifi_rssi\":%d,"
+                      "\"temp_c\":%.1f,\"crash_count\":%lu,\"safe_mode\":%s,"
+                      "\"boot_count\":%lu,\"fw\":\"%s\",\"hw\":\"%s\"}\n",
+                      hd.uptime_sec, hd.free_heap, hd.wifi_rssi,
+                      hd.temperature_c, hd.crash_count, hd.safe_mode ? "true" : "false",
+                      s.boot_count, FW_VERSION, DEVICE_HARDWARE);
+    }
+    else if (strcmp(cmd, "set_sleep") == 0) {
+        int ms = doc["ms"] | -1;
+        if (ms >= 5000) {
+            settings_get().sleep_timeout_ms = ms;
+            settings_save();
+            Serial.printf("{\"ok\":true,\"sleep_ms\":%d}\n", ms);
+        }
+    }
+    else if (strcmp(cmd, "set_theme") == 0) {
+        const char *theme = doc["theme"];
+        if (theme) {
+            strlcpy(settings_get().theme, theme, sizeof(settings_get().theme));
+            settings_save();
+            Serial.printf("{\"ok\":true,\"theme\":\"%s\"}\n", theme);
+        }
     }
     else if (strcmp(cmd, "ui_dump") == 0) {
         // Dump current LVGL screen widget tree
