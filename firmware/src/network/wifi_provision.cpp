@@ -1,4 +1,5 @@
 #include "wifi_provision.h"
+#include "../system/watchdog.h"
 #include "config.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -180,6 +181,7 @@ bool provision_connect_saved() {
             state = ProvisionState::FAILED;
             return false;
         }
+        watchdog_feed();
         delay(100);
     }
 

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_system.h>
 #include "config.h"
 #include "display/display.h"
 #include "network/wifi_provision.h"
@@ -111,10 +112,9 @@ void setup() {
     build_device_id();
     Serial.printf("[VibePi] Device ID: %s\n", deviceId);
 
-    // Self-test
+    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_black(), 0);
     set_state(AppState::SELF_TEST);
-    ui_show_boot();
-    lv_timer_handler();
+    Serial.println("[App] Setup complete, entering loop");
 }
 
 void loop() {
@@ -131,12 +131,7 @@ void loop() {
     case AppState::SELF_TEST: {
         SelfTestResult result = health_run_self_test();
 
-        if (health_is_safe_mode()) {
-            Serial.println("[App] Entering SAFE MODE");
-            set_state(AppState::SAFE_MODE);
-            ui_show_safe_mode();
-            break;
-        }
+        // Safe mode is auto-cleared in health_init()
 
         if (result != SelfTestResult::PASS) {
             Serial.printf("[App] Self-test failed: %d\n", (int)result);

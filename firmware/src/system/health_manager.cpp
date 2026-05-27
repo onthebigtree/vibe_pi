@@ -35,8 +35,11 @@ void health_init() {
     }
 
     if (crashCount >= MAX_CRASH_COUNT_SAFE_MODE) {
-        safeMode = true;
-        Serial.println("[Health] SAFE MODE ACTIVATED — too many crashes");
+        Serial.printf("[Health] Crash count %u >= %d — clearing and continuing\n",
+                      crashCount, MAX_CRASH_COUNT_SAFE_MODE);
+        prefs.putUInt(NVS_CRASH_COUNT, 0);
+        prefs.putString(NVS_LAST_CRASH, "");
+        // Don't set safeMode — allow normal boot after clearing
     }
 
     prefs.end();
