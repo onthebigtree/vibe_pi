@@ -4,6 +4,7 @@
 #include "../system/i18n.h"
 #include "../system/settings_manager.h"
 #include "../system/pairing_manager.h"
+#include "../network/serial_config.h"
 #include "config.h"
 #include <WiFi.h>
 
@@ -79,6 +80,23 @@ void oobe_show() {
 
 void oobe_loop() {
     pairing_loop();
+
+    // Poll serial for WiFi config during password step
+    if (step == OobeStep::WIFI_PASSWORD) {
+        serial_config_loop();
+        if (serial_config_has_wifi()) {
+            selectedSSID = String(serial_config_get_ssid());
+            const char *pass = serial_config_get_pass();
+
+            step = OobeStep::WIFI_CONNECTING;
+            clear_content();
+            show_wifi_connecting_step();
+
+            settings_save_wifi(selectedSSID.c_str(), pass);
+            WiFi.begin(selectedSSID.c_str(), pass);
+            serial_config_clear();
+        }
+    }
 }
 
 OobeStep oobe_get_step() { return step; }
@@ -211,43 +229,37 @@ void oobe_on_wifi_scan_done(int count) {
 // Step 3: WiFi Password
 // ═══════════════════════════════════════════════════════════════
 
-static lv_obj_t *password_ta = nullptr;
-
-static void on_wifi_connect_btn(lv_event_t *e) {
-    const char *pass = lv_textarea_get_text(password_ta);
-    step = OobeStep::WIFI_CONNECTING;
-    clear_content();
-    show_wifi_connecting_step();
-
-    // Save and connect
-    settings_save_wifi(selectedSSID.c_str(), pass);
-    WiFi.begin(selectedSSID.c_str(), pass);
-}
-
 static void show_wifi_password_step() {
-    create_centered_label(content_area, selectedSSID.c_str(), FONT_LARGE, CLR_ACCENT, -110);
-    create_centered_label(content_area, i18n(S_ENTER_PASSWORD), FONT_SMALL, CLR_TEXT_SECONDARY, -75);
+    create_centered_label(content_area, LV_SYMBOL_USB, FONT_TITLE, CLR_ACCENT, -70);
 
-    password_ta = lv_textarea_create(content_area);
-    lv_obj_set_size(password_ta, 300, 44);
-    lv_textarea_set_password_mode(password_ta, true);
-    lv_textarea_set_one_line(password_ta, true);
-    lv_textarea_set_placeholder_text(password_ta, "WiFi Password");
-    lv_obj_set_style_bg_color(password_ta, CLR_SURFACE, 0);
-    lv_obj_set_style_text_color(password_ta, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_border_color(password_ta, CLR_BORDER, 0);
-    lv_obj_set_style_radius(password_ta, 8, 0);
-    lv_obj_align(password_ta, LV_ALIGN_CENTER, 0, -30);
+    create_centered_label(content_area,
+        (i18n_get_lang() == Lang::ZH)
+            ? "请在电脑浏览器中\n打开配置页面"
+            : "Open config page\nin your browser",
+        FONT_BODY, CLR_TEXT_PRIMARY, -10);
 
-    // On-screen keyboard
-    lv_obj_t *kb = lv_keyboard_create(content_area);
-    lv_obj_set_size(kb, 380, 200);
-    lv_obj_set_style_bg_color(kb, CLR_SURFACE, 0);
-    lv_obj_set_style_text_color(kb, CLR_TEXT_PRIMARY, 0);
-    lv_keyboard_set_textarea(kb, password_ta);
-    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -40);
+    create_centered_label(content_area,
+        "vibepi.github.io/setup",
+        FONT_SMALL, CLR_ACCENT, 40);
 
-    create_button(content_area, i18n(S_CONNECTING_WIFI), 30, on_wifi_connect_btn);
+    create_centered_label(content_area,
+        (i18n_get_lang() == Lang::ZH)
+            ? "通过 USB 发送 WiFi 配置"
+            : "Send WiFi config via USB",
+        FONT_SMALL, CLR_TEXT_MUTED, 75);
+
+    // Spinner while waiting
+    lv_obj_t *spinner = lv_spinner_create(content_area);
+    lv_obj_set_size(spinner, 30, 30);
+    lv_obj_set_style_arc_color(spinner, CLR_SURFACE_ALT, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner, CLR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(spinner, 3, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 3, LV_PART_INDICATOR);
+    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 115);
+
+    serial_config_init();
+    Serial.println("[OOBE] Waiting for WiFi config via USB serial...");
+    Serial.println("[OOBE] Send: {\"cmd\":\"wifi\",\"ssid\":\"YOUR_SSID\",\"pass\":\"YOUR_PASS\"}");
 }
 
 // ═══════════════════════════════════════════════════════════════

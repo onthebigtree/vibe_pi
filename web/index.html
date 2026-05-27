@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vibe Pi Setup</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;
+  display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px}
+.card{background:#111;border-radius:16px;padding:32px;max-width:420px;width:100%;border:1px solid #2a2a2a}
+h1{font-size:24px;margin-bottom:4px;color:#fff}
+.sub{color:#666;font-size:14px;margin-bottom:24px}
+.step{display:none}.step.active{display:block}
+label{display:block;font-size:13px;color:#999;margin:16px 0 6px}
+input,select{width:100%;padding:12px;border-radius:8px;border:1px solid #333;background:#1a1a1a;
+  color:#fff;font-size:15px;outline:none}
+input:focus,select:focus{border-color:#64B5F6}
+.btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:600;
+  cursor:pointer;margin-top:20px;transition:all .2s}
+.btn-primary{background:#64B5F6;color:#000}
+.btn-primary:hover{opacity:.9}
+.btn-primary:disabled{opacity:.3;cursor:wait}
+.btn-secondary{background:#222;color:#999;border:1px solid #333}
+.status{margin-top:16px;padding:12px;border-radius:8px;font-size:13px;display:none}
+.status.ok{display:block;background:#1a3a1a;color:#4caf50;border:1px solid #2d5a2d}
+.status.err{display:block;background:#3a1a1a;color:#ef5350;border:1px solid #5a2d2d}
+.status.info{display:block;background:#1a2a3a;color:#64B5F6;border:1px solid #2d3d5a}
+.net-list{max-height:200px;overflow-y:auto;margin:12px 0}
+.net-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;
+  background:#1a1a1a;border-radius:8px;margin:4px 0;cursor:pointer;border:1px solid transparent}
+.net-item:hover{border-color:#64B5F6}
+.net-item.selected{border-color:#64B5F6;background:#1a2a3a}
+.net-rssi{color:#666;font-size:12px}
+.footer{text-align:center;margin-top:20px;font-size:12px;color:#333}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}
+.dot.on{background:#4caf50}.dot.off{background:#666}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>⚡ Vibe Pi Setup</h1>
+  <p class="sub">通过 USB 配置你的设备 / Configure via USB</p>
+
+  <!-- Step 1: Connect -->
+  <div id="s1" class="step active">
+    <p style="color:#999;font-size:14px;margin-bottom:16px">
+      <span class="dot off" id="dot"></span>
+      <span id="conn-status">未连接 / Not connected</span>
+    </p>
+    <button class="btn btn-primary" id="btn-connect" onclick="doConnect()">连接设备 / Connect Device</button>
+    <div id="st1" class="status"></div>
+    <p style="color:#555;font-size:12px;margin-top:12px">需要 Chrome 或 Edge 浏览器 / Requires Chrome or Edge</p>
+  </div>
+
+  <!-- Step 2: WiFi Config -->
+  <div id="s2" class="step">
+    <p style="color:#999;font-size:14px;margin-bottom:8px">
+      <span class="dot on"></span> 已连接 / Connected
+    </p>
+
+    <button class="btn btn-secondary" onclick="doScan()" id="btn-scan">扫描 WiFi / Scan WiFi</button>
+    <div class="net-list" id="net-list"></div>
+
+    <label>WiFi 名称 / SSID</label>
+    <input id="ssid" placeholder="WiFi name">
+
+    <label>WiFi 密码 / Password</label>
+    <input id="pass" type="password" placeholder="WiFi password">
+
+    <button class="btn btn-primary" id="btn-send" onclick="doSend()">发送配置 / Send Config</button>
+    <div id="st2" class="status"></div>
+  </div>
+
+  <p class="footer">Vibe Pi v0.2.0</p>
+</div>
+
+<script>
+let port, reader, writer, readBuf = '';
+
+async function doConnect() {
+  const btn = document.getElementById('btn-connect');
+  const st = document.getElementById('st1');
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    startReading();
+
+    // Ping device
+    await send({cmd:'ping'});
+    await sleep(500);
+
+    document.getElementById('dot').className = 'dot on';
+    document.getElementById('conn-status').textContent = '已连接 / Connected';
+    st.className = 'status ok';
+    st.textContent = '设备已连接 / Device connected';
+
+    setTimeout(() => {
+      document.getElementById('s1').className = 'step';
+      document.getElementById('s2').className = 'step active';
+    }, 800);
+  } catch(e) {
+    st.className = 'status err';
+    st.textContent = e.message;
+  }
+}
+
+async function startReading() {
+  const decoder = new TextDecoderStream();
+  port.readable.pipeTo(decoder.writable);
+  reader = decoder.readable.getReader();
+  (async () => {
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      readBuf += value;
+      let lines = readBuf.split('\n');
+      readBuf = lines.pop();
+      for (const line of lines) {
+        handleLine(line.trim());
+      }
+    }
+  })();
+}
+
+let pendingResolve = null;
+function handleLine(line) {
+  if (!line.startsWith('{')) return;
+  try {
+    const msg = JSON.parse(line);
+    console.log('RX:', msg);
+    if (msg.networks) showNetworks(msg.networks);
+    if (pendingResolve) { pendingResolve(msg); pendingResolve = null; }
+  } catch(e) {}
+}
+
+async function send(obj) {
+  const json = JSON.stringify(obj) + '\n';
+  await writer.write(new TextEncoder().encode(json));
+  console.log('TX:', json.trim());
+}
+
+async function doScan() {
+  document.getElementById('btn-scan').disabled = true;
+  document.getElementById('btn-scan').textContent = '扫描中... / Scanning...';
+  await send({cmd:'scan'});
+  setTimeout(() => {
+    document.getElementById('btn-scan').disabled = false;
+    document.getElementById('btn-scan').textContent = '扫描 WiFi / Scan WiFi';
+  }, 5000);
+}
+
+function showNetworks(nets) {
+  const el = document.getElementById('net-list');
+  el.innerHTML = nets.map(n =>
+    `<div class="net-item" onclick="selectNet('${n.ssid.replace(/'/g,"\\'")}')">
+      <span>${n.ssid}</span><span class="net-rssi">${n.rssi} dBm</span>
+    </div>`
+  ).join('');
+}
+
+function selectNet(ssid) {
+  document.getElementById('ssid').value = ssid;
+  document.querySelectorAll('.net-item').forEach(el => {
+    el.classList.toggle('selected', el.querySelector('span').textContent === ssid);
+  });
+}
+
+async function doSend() {
+  const ssid = document.getElementById('ssid').value.trim();
+  const pass = document.getElementById('pass').value;
+  const st = document.getElementById('st2');
+  if (!ssid) { st.className='status err'; st.textContent='请输入 SSID'; return; }
+
+  document.getElementById('btn-send').disabled = true;
+  st.className = 'status info';
+  st.textContent = '发送中... / Sending...';
+
+  await send({cmd:'wifi', ssid, pass});
+
+  st.className = 'status ok';
+  st.textContent = '✓ 配置已发送！设备正在连接 WiFi... / Config sent! Connecting...';
+  document.getElementById('btn-send').disabled = false;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
