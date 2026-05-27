@@ -4,7 +4,7 @@
 
 #define QSPI_HOST     SPI2_HOST
 #define QSPI_FREQ     40000000
-#define MAX_PIXELS     1024
+#define MAX_PIXELS     4096
 #define COL_OFFSET     6
 #define ROW_OFFSET     0
 

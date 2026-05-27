@@ -46,7 +46,7 @@ void oobe_show() {
 
     // URL
     lv_obj_t *url = lv_label_create(_scr);
-    lv_label_set_text(url, "web/index.html");
+    lv_label_set_text(url, "onthebigtree.github.io\n/vibe_pi/setup");
     lv_obj_set_style_text_color(url, CLR_ACCENT, 0);
     lv_obj_set_style_text_font(url, &font_zh_20, 0);
     lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);

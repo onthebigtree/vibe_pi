@@ -43,13 +43,16 @@ void display_init() {
 
     const DisplayConfig &cfg = g_display->config();
 
-    size_t buf_px = cfg.buf_pixel_count;
+    // Use large buffers in PSRAM for smooth rendering (1/4 screen each, double-buffered)
+    size_t buf_px = cfg.width * cfg.height / 4;
     if (board.caps.has_psram && psramFound()) {
         buf1 = (lv_color_t *)ps_malloc(buf_px * sizeof(lv_color_t));
         buf2 = (lv_color_t *)ps_malloc(buf_px * sizeof(lv_color_t));
+        Serial.printf("[Display] PSRAM buffers: 2x %zu px (%zu KB each)\n",
+                      buf_px, buf_px * sizeof(lv_color_t) / 1024);
     }
     if (!buf1 || !buf2) {
-        buf_px = cfg.width * 10;
+        buf_px = cfg.width * 20;
         buf1 = (lv_color_t *)malloc(buf_px * sizeof(lv_color_t));
         buf2 = (lv_color_t *)malloc(buf_px * sizeof(lv_color_t));
     }
