@@ -1,5 +1,6 @@
 #include "ui_manager.h"
 #include "theme.h"
+#include "../display/display.h"
 #include "../system/i18n.h"
 #include "../system/settings_manager.h"
 #include "config.h"
@@ -260,7 +261,7 @@ void ui_show_dashboard() {
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
 
     tile_overview    = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
-    tile_tool_detail = lv_tileview_add_tile(tv, 1, 0, LV_DIR_LEFT | LV_DIR_RIGHT);
+    tile_tool_detail = lv_tileview_add_tile(tv, 1, 0, (lv_dir_t)(LV_DIR_LEFT | LV_DIR_RIGHT));
     tile_system      = lv_tileview_add_tile(tv, 2, 0, LV_DIR_LEFT);
 
     lv_obj_set_style_bg_opa(tile_overview, LV_OPA_TRANSP, 0);
@@ -589,11 +590,6 @@ int ui_get_page_count() { return PAGE_COUNT; }
 
 // ── Display control ──
 
-void display_set_brightness(uint8_t level) {
-    // TODO: Implement CO5300 brightness command via QSPI
-    Serial.printf("[Display] Brightness: %d\n", level);
-}
-
 void ui_sleep() {
     if (sleeping) return;
     sleeping = true;
@@ -639,7 +635,7 @@ void ui_show_pairing(const char *code) {
     lv_obj_align(codeLabel, LV_ALIGN_CENTER, 0, -20);
 
     lv_obj_t *hint = lv_label_create(scr);
-    lv_label_set_text(hint, i18n(S_PAIR_WAIT));
+    lv_label_set_text(hint, i18n(S_PAIR_WAITING));
     lv_obj_set_style_text_color(hint, CLR_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(hint, FONT_SMALL, 0);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);

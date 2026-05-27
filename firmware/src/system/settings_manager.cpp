@@ -155,7 +155,7 @@ void settings_export_json(JsonDocument &doc) {
     doc["alert_disconnect"] = cfg.alert_disconnect;
 }
 
-bool settings_import_json(const JsonDocument &doc) {
+bool settings_import_json(JsonDocument &doc) {
     return settings_apply_sync(doc.as<JsonObject>());
 }
 

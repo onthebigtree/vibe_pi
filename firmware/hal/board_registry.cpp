@@ -9,7 +9,7 @@
     #error "No board selected. Define BOARD_xxx in platformio.ini build_flags."
 #endif
 
-// ── Display driver includes (selected per board) ──
+// ── Driver includes ──
 #if defined(BOARD_WAVESHARE_175_AMOLED)
     #include "drivers/display/co5300_driver.h"
     #include "drivers/touch/cst9217_driver.h"

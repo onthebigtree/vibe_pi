@@ -61,12 +61,13 @@ SelfTestResult health_run_self_test() {
     }
     Serial.printf("[Health] Flash: %u MB\n", flashSize / (1024 * 1024));
 
-    // WiFi module check
-    if (WiFi.mode(WIFI_STA) == false) {
+    // WiFi module check — just verify MAC is readable, don't change mode
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    if (mac[0] == 0 && mac[1] == 0 && mac[2] == 0) {
         health_record_error("WIFI_FAIL");
         return SelfTestResult::WIFI_FAIL;
     }
-    WiFi.mode(WIFI_OFF);
     Serial.println("[Health] WiFi: OK");
 
     // Display and touch are checked during their init — stubs for now

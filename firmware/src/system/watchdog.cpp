@@ -7,12 +7,7 @@
 static uint32_t minFreeHeap = UINT32_MAX;
 
 void watchdog_init(uint32_t timeout_ms) {
-    esp_task_wdt_config_t cfg = {
-        .timeout_ms = timeout_ms,
-        .idle_core_mask = 0,
-        .trigger_panic = true,
-    };
-    esp_task_wdt_init(&cfg);
+    esp_task_wdt_init(timeout_ms / 1000, true);
     esp_task_wdt_add(nullptr);
     Serial.printf("[WDT] Initialized: %lu ms\n", timeout_ms);
 }

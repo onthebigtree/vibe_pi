@@ -1,6 +1,7 @@
 #include "notification.h"
 #include "theme.h"
 #include "hal/board.h"
+#include <Arduino.h>
 
 static lv_obj_t *notif_bar = nullptr;
 static lv_obj_t *notif_label = nullptr;

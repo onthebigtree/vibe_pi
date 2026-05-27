@@ -1,7 +1,5 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <esp_task_wdt.h>
-
 #include "config.h"
 #include "display/display.h"
 #include "network/wifi_provision.h"
@@ -14,6 +12,7 @@
 #include "system/power_manager.h"
 #include "system/pairing_manager.h"
 #include "system/ota_manager.h"
+#include "system/watchdog.h"
 #include "ui/ui_manager.h"
 #include "ui/oobe_flow.h"
 
@@ -111,13 +110,7 @@ void setup() {
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
     // Watchdog
-    esp_task_wdt_config_t wdt_cfg = {
-        .timeout_ms = WATCHDOG_TIMEOUT_MS,
-        .idle_core_mask = 0,
-        .trigger_panic = true,
-    };
-    esp_task_wdt_init(&wdt_cfg);
-    esp_task_wdt_add(nullptr);
+    watchdog_init(WATCHDOG_TIMEOUT_MS);
 
     // Init systems (order matters)
     settings_init();
@@ -137,7 +130,7 @@ void setup() {
 }
 
 void loop() {
-    esp_task_wdt_reset();
+    watchdog_feed();
     lv_timer_handler();
     handle_button();
 

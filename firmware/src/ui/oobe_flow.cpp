@@ -304,7 +304,7 @@ static void show_pairing_step() {
     lv_obj_set_style_text_letter_space(codeLabel, 6, 0);
     lv_obj_align(codeLabel, LV_ALIGN_CENTER, 0, -20);
 
-    create_centered_label(content_area, i18n(S_PAIR_WAIT), FONT_SMALL, CLR_TEXT_MUTED, 30);
+    create_centered_label(content_area, i18n(S_PAIR_WAITING), FONT_SMALL, CLR_TEXT_MUTED, 30);
 
     lv_obj_t *spinner = lv_spinner_create(content_area);
     lv_obj_set_size(spinner, 30, 30);

@@ -53,7 +53,7 @@ void     settings_reset_factory();   // L3: everything
 
 // Export/Import
 void     settings_export_json(JsonDocument &doc);
-bool     settings_import_json(const JsonDocument &doc);
+bool     settings_import_json(JsonDocument &doc);
 
 // Apply remote sync
 bool     settings_apply_sync(const JsonObject &payload);
