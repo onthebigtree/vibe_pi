@@ -117,13 +117,18 @@ void setup() {
     Serial.println("[App] Setup complete, entering loop");
 }
 
+static uint32_t loopCount = 0;
+
 void loop() {
+    loopCount++;
     watchdog_feed();
-    display_update_touch();
-    lv_timer_handler();
     handle_button();
     serial_config_loop();
+    display_update_touch();
     notif_loop();
+
+    // State machine runs BEFORE rendering to avoid blocking on UI transitions
+    // lv_timer_handler() runs AFTER state machine so it renders the final state
 
     switch (appState) {
 
@@ -171,6 +176,7 @@ void loop() {
 
     // ── CONNECTING WIFI ──
     case AppState::CONNECTING_WIFI: {
+        Serial.println("[App] CONNECTING_WIFI...");
         provision_init();
         if (provision_is_configured()) {
             if (provision_connect_saved()) {
@@ -203,23 +209,41 @@ void loop() {
     case AppState::DISCOVERING: {
         DeviceSettings &s = settings_get();
 
-        // If we have a saved host address, try it directly
-        if (strlen(s.host_addr) > 0 && !hostInfo.found) {
+        static int discoverAttempt = 0;
+
+        // 1. Saved host address (always try first)
+        if (strlen(s.host_addr) > 0) {
             hostInfo.host = String(s.host_addr);
             hostInfo.port = s.host_port;
             hostInfo.found = true;
             Serial.printf("[App] Using saved host: %s:%d\n", s.host_addr, s.host_port);
         }
 
+        // 2. mDNS disabled — unreliable on many networks (returns 0.0.0.0)
+        // if (!hostInfo.found && discoverAttempt < 2) {
+        //     hostInfo = mdns_discover_host();
+        // }
+
+        // 3. Subnet scan — cycle through common host IPs
         if (!hostInfo.found) {
-            hostInfo = mdns_discover_host();
+            IPAddress local = WiFi.localIP();
+            if (local != IPAddress(0,0,0,0)) {
+                const int candidates[] = {250, 1, 100, 200, 50};
+                int idx = discoverAttempt % 5;
+                char buf[20];
+                snprintf(buf, sizeof(buf), "%d.%d.%d.%d", local[0], local[1], local[2], candidates[idx]);
+                hostInfo.host = String(buf);
+                hostInfo.port = WS_DEFAULT_PORT;
+                hostInfo.found = true;
+                Serial.printf("[App] Trying subnet: %s:%d\n", buf, WS_DEFAULT_PORT);
+            }
         }
+
+        discoverAttempt++;
 
         if (hostInfo.found) {
             set_state(AppState::CONNECTING_WS);
             ws_client_init(hostInfo.host.c_str(), hostInfo.port);
-        } else if (state_elapsed() > 5000) {
-            stateEnteredAt = millis(); // retry
         }
         break;
     }
@@ -289,9 +313,10 @@ void loop() {
 
     // ── SAFE MODE ──
     case AppState::SAFE_MODE:
-        // Minimal operation — only handle button for factory reset
         break;
     }
+
+    lv_timer_handler();
 
     delay(5);
 }

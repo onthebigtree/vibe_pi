@@ -159,7 +159,7 @@ void ui_show_provision(const char *ap_ssid, const char *ap_ip) {
     snprintf(subtitle, sizeof(subtitle), "Connect to WiFi:\n%s\n\nThen open:\nhttp://%s", ap_ssid, ap_ip);
 
     scr_provision = create_status_screen(LV_SYMBOL_WIFI, "Setup Required", subtitle);
-    lv_screen_load_anim(scr_provision, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, true);
+    lv_screen_load(scr_provision);
 }
 
 void ui_show_connecting_wifi() {
@@ -181,14 +181,14 @@ void ui_show_connecting_wifi() {
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 20);
 
     scr_connecting = scr;
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    lv_screen_load(scr);
 }
 
 void ui_show_wifi_failed() {
     lv_obj_t *scr = create_status_screen(LV_SYMBOL_WARNING, "WiFi Failed",
         "Could not connect.\nHold button to\nre-enter setup.");
     lv_obj_set_style_text_color(lv_obj_get_child(scr, 0), CLR_ERROR, 0);
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    lv_screen_load(scr);
 }
 
 void ui_show_discovering() {
@@ -209,7 +209,7 @@ void ui_show_discovering() {
     lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 20);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    lv_screen_load(scr);
 }
 
 void ui_show_reconnecting() {
@@ -230,7 +230,7 @@ void ui_show_reconnecting() {
     lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 20);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, true);
+    lv_screen_load(scr);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -247,7 +247,7 @@ static void on_tile_changed(lv_event_t *e) {
 
 void ui_show_dashboard() {
     if (scr_dashboard) {
-        lv_screen_load_anim(scr_dashboard, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, false);
+        lv_screen_load(scr_dashboard);
         return;
     }
 
@@ -286,7 +286,7 @@ void ui_show_dashboard() {
     lv_obj_align(ov_dot_indicators, LV_ALIGN_BOTTOM_MID, 0, -50);
     create_dot_indicators(ov_dot_indicators, 0, PAGE_COUNT);
 
-    lv_screen_load_anim(scr_dashboard, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, false);
+    lv_screen_load(scr_dashboard);
 }
 
 // ── Overview page ──
@@ -648,7 +648,7 @@ void ui_show_pairing(const char *code) {
     lv_obj_set_style_arc_width(spinner, 3, LV_PART_INDICATOR);
     lv_obj_align(spinner, LV_ALIGN_CENTER, 0, 75);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    lv_screen_load(scr);
 }
 
 // ── Safe mode screen ──

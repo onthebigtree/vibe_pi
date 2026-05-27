@@ -43,19 +43,18 @@ void display_init() {
 
     const DisplayConfig &cfg = g_display->config();
 
-    // Use large buffers in PSRAM for smooth rendering (1/4 screen each, double-buffered)
-    size_t buf_px = cfg.width * cfg.height / 4;
-    if (board.caps.has_psram && psramFound()) {
-        buf1 = (lv_color_t *)ps_malloc(buf_px * sizeof(lv_color_t));
-        buf2 = (lv_color_t *)ps_malloc(buf_px * sizeof(lv_color_t));
-        Serial.printf("[Display] PSRAM buffers: 2x %zu px (%zu KB each)\n",
-                      buf_px, buf_px * sizeof(lv_color_t) / 1024);
-    }
+    // DMA-aligned buffers in internal RAM (not PSRAM — PSRAM causes QSPI DMA deadlock)
+    size_t buf_px = cfg.width * 40;
+    buf1 = (lv_color_t *)heap_caps_aligned_alloc(16, buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    buf2 = (lv_color_t *)heap_caps_aligned_alloc(16, buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!buf1 || !buf2) {
-        buf_px = cfg.width * 20;
-        buf1 = (lv_color_t *)malloc(buf_px * sizeof(lv_color_t));
-        buf2 = (lv_color_t *)malloc(buf_px * sizeof(lv_color_t));
+        buf_px = cfg.width * 10;
+        free(buf1); free(buf2);
+        buf1 = (lv_color_t *)heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
+        buf2 = (lv_color_t *)heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
     }
+    Serial.printf("[Display] DMA buffers: 2x %zu px (%zu KB each)\n",
+                  buf_px, buf_px * sizeof(lv_color_t) / 1024);
 
     lv_disp = lv_display_create(cfg.width, cfg.height);
     lv_display_set_flush_cb(lv_disp, disp_flush_cb);
