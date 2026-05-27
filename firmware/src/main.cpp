@@ -86,21 +86,6 @@ static void handle_button() {
     }
 }
 
-// ── WiFi scan callback for OOBE ──
-static void check_wifi_scan_result() {
-    int16_t result = WiFi.scanComplete();
-    if (result == WIFI_SCAN_RUNNING) return;
-    if (result >= 0) {
-        oobe_on_wifi_scan_done(result);
-    }
-}
-
-static void check_wifi_connect_result() {
-    if (WiFi.status() == WL_CONNECTED) {
-        oobe_on_wifi_connected(WiFi.localIP().toString().c_str());
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════
 void setup() {
     Serial.begin(115200);
@@ -167,30 +152,15 @@ void loop() {
         break;
     }
 
-    // ── OOBE (first-run wizard) ──
+    // ── OOBE (web-based setup via USB serial) ──
     case AppState::OOBE: {
         oobe_loop();
-        check_wifi_scan_result();
-
-        if (oobe_get_step() == OobeStep::WIFI_CONNECTING) {
-            if (WiFi.status() == WL_CONNECTED) {
-                oobe_on_wifi_connected(WiFi.localIP().toString().c_str());
-                mdns_discovery_init();
-
-                // Auto-discover and connect for pairing
-                hostInfo = mdns_discover_host();
-                if (hostInfo.found) {
-                    ws_client_init(hostInfo.host.c_str(), hostInfo.port);
-                }
-            } else if (state_elapsed() > WIFI_CONNECT_TIMEOUT_MS) {
-                oobe_on_wifi_failed();
-            }
-        }
 
         if (oobe_is_finished()) {
-            if (pairing_is_paired()) {
-                set_state(AppState::RUNNING);
-                ui_show_dashboard();
+            if (WiFi.status() == WL_CONNECTED) {
+                mdns_discovery_init();
+                set_state(AppState::DISCOVERING);
+                ui_show_discovering();
             } else {
                 set_state(AppState::CONNECTING_WIFI);
                 ui_show_connecting_wifi();

@@ -8,183 +8,272 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#e0e0e0;
   display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px}
-.card{background:#111;border-radius:16px;padding:32px;max-width:420px;width:100%;border:1px solid #2a2a2a}
-h1{font-size:24px;margin-bottom:4px;color:#fff}
-.sub{color:#666;font-size:14px;margin-bottom:24px}
+.card{background:#111;border-radius:20px;padding:36px;max-width:460px;width:100%;border:1px solid #222}
+h1{font-size:26px;margin-bottom:4px;color:#fff}
+.sub{color:#555;font-size:13px;margin-bottom:28px}
 .step{display:none}.step.active{display:block}
-label{display:block;font-size:13px;color:#999;margin:16px 0 6px}
-input,select{width:100%;padding:12px;border-radius:8px;border:1px solid #333;background:#1a1a1a;
-  color:#fff;font-size:15px;outline:none}
-input:focus,select:focus{border-color:#64B5F6}
-.btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:600;
-  cursor:pointer;margin-top:20px;transition:all .2s}
-.btn-primary{background:#64B5F6;color:#000}
-.btn-primary:hover{opacity:.9}
+.step-title{font-size:18px;color:#fff;margin-bottom:16px}
+.step-desc{color:#888;font-size:14px;margin-bottom:20px;line-height:1.5}
+label{display:block;font-size:13px;color:#888;margin:14px 0 6px}
+input,select{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#1a1a1a;
+  color:#fff;font-size:15px;outline:none;transition:border .2s}
+input:focus{border-color:#64B5F6}
+.btn{display:inline-block;padding:13px 28px;border:none;border-radius:12px;font-size:15px;font-weight:600;
+  cursor:pointer;transition:all .15s;margin-top:16px}
+.btn-primary{background:#64B5F6;color:#000;width:100%}
+.btn-primary:hover{background:#90CAF9}
 .btn-primary:disabled{opacity:.3;cursor:wait}
-.btn-secondary{background:#222;color:#999;border:1px solid #333}
-.status{margin-top:16px;padding:12px;border-radius:8px;font-size:13px;display:none}
-.status.ok{display:block;background:#1a3a1a;color:#4caf50;border:1px solid #2d5a2d}
-.status.err{display:block;background:#3a1a1a;color:#ef5350;border:1px solid #5a2d2d}
-.status.info{display:block;background:#1a2a3a;color:#64B5F6;border:1px solid #2d3d5a}
-.net-list{max-height:200px;overflow-y:auto;margin:12px 0}
-.net-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;
-  background:#1a1a1a;border-radius:8px;margin:4px 0;cursor:pointer;border:1px solid transparent}
-.net-item:hover{border-color:#64B5F6}
-.net-item.selected{border-color:#64B5F6;background:#1a2a3a}
-.net-rssi{color:#666;font-size:12px}
-.footer{text-align:center;margin-top:20px;font-size:12px;color:#333}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}
-.dot.on{background:#4caf50}.dot.off{background:#666}
+.btn-outline{background:transparent;color:#888;border:1px solid #333;width:100%}
+.btn-outline:hover{border-color:#64B5F6;color:#64B5F6}
+.btn-sm{padding:9px 16px;font-size:13px;margin-top:8px}
+.status{padding:10px 14px;border-radius:10px;font-size:13px;margin-top:14px;display:none}
+.status.ok{display:block;background:#0d2818;color:#4caf50;border:1px solid #1b4332}
+.status.err{display:block;background:#2d0a0a;color:#ef5350;border:1px solid #5a1a1a}
+.status.info{display:block;background:#0a1929;color:#64B5F6;border:1px solid #1a3a5a}
+.net-list{max-height:220px;overflow-y:auto;margin:12px 0;border-radius:10px}
+.net-item{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;
+  background:#1a1a1a;margin:3px 0;cursor:pointer;border:1px solid transparent;border-radius:8px;transition:all .15s}
+.net-item:hover{border-color:#333}
+.net-item.sel{border-color:#64B5F6;background:#0a1929}
+.net-rssi{color:#555;font-size:12px}
+.net-lock{color:#666;font-size:11px;margin-left:6px}
+.footer{text-align:center;margin-top:24px;font-size:11px;color:#333}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.dot.on{background:#4caf50}.dot.off{background:#555}
+.progress{display:flex;justify-content:center;gap:8px;margin-bottom:24px}
+.progress .pip{width:8px;height:8px;border-radius:50%;background:#333}
+.progress .pip.active{background:#64B5F6}
+.progress .pip.done{background:#4caf50}
+.lang-btn{display:flex;align-items:center;justify-content:center;padding:16px;
+  background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;cursor:pointer;
+  font-size:16px;transition:all .15s;flex:1}
+.lang-btn:hover{border-color:#64B5F6}
+.lang-btn.sel{border-color:#64B5F6;background:#0a1929}
+.row{display:flex;gap:10px;margin-top:0}
+.setting-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;
+  border-bottom:1px solid #1a1a1a}
+.setting-row:last-child{border:none}
+.setting-label{color:#ccc;font-size:14px}
+.setting-value{color:#64B5F6;font-size:14px}
+input[type=range]{accent-color:#64B5F6;width:100%;margin:8px 0}
 </style>
 </head>
 <body>
 <div class="card">
   <h1>⚡ Vibe Pi Setup</h1>
-  <p class="sub">通过 USB 配置你的设备 / Configure via USB</p>
+  <p class="sub">Configure your device via USB / 通过 USB 配置设备</p>
+
+  <div class="progress" id="pips">
+    <div class="pip active"></div><div class="pip"></div><div class="pip"></div><div class="pip"></div>
+  </div>
 
   <!-- Step 1: Connect -->
   <div id="s1" class="step active">
-    <p style="color:#999;font-size:14px;margin-bottom:16px">
+    <div class="step-title">1. Connect Device / 连接设备</div>
+    <p class="step-desc">
       <span class="dot off" id="dot"></span>
-      <span id="conn-status">未连接 / Not connected</span>
+      Plug in Vibe Pi via USB-C, then click Connect.<br>
+      用 USB-C 连接设备，然后点击连接。
     </p>
-    <button class="btn btn-primary" id="btn-connect" onclick="doConnect()">连接设备 / Connect Device</button>
+    <button class="btn btn-primary" id="btn-conn" onclick="doConnect()">Connect / 连接</button>
     <div id="st1" class="status"></div>
-    <p style="color:#555;font-size:12px;margin-top:12px">需要 Chrome 或 Edge 浏览器 / Requires Chrome or Edge</p>
+    <p style="color:#444;font-size:11px;margin-top:10px">Chrome 89+ / Edge 89+</p>
   </div>
 
-  <!-- Step 2: WiFi Config -->
+  <!-- Step 2: Language + Name -->
   <div id="s2" class="step">
-    <p style="color:#999;font-size:14px;margin-bottom:8px">
-      <span class="dot on"></span> 已连接 / Connected
-    </p>
+    <div class="step-title">2. Basic Settings / 基本设置</div>
 
-    <button class="btn btn-secondary" onclick="doScan()" id="btn-scan">扫描 WiFi / Scan WiFi</button>
+    <label>Language / 语言</label>
+    <div class="row">
+      <div class="lang-btn sel" id="lang-zh" onclick="pickLang('zh')">中文</div>
+      <div class="lang-btn" id="lang-en" onclick="pickLang('en')">English</div>
+    </div>
+
+    <label>Device Name / 设备名称</label>
+    <input id="dev-name" value="Vibe Pi">
+
+    <label>Brightness / 亮度: <span id="br-val">80</span>%</label>
+    <input type="range" id="brightness" min="10" max="100" value="80" oninput="document.getElementById('br-val').textContent=this.value">
+
+    <button class="btn btn-primary" onclick="saveBasic()">Next / 下一步 →</button>
+  </div>
+
+  <!-- Step 3: WiFi -->
+  <div id="s3" class="step">
+    <div class="step-title">3. WiFi Network / WiFi 网络</div>
+
+    <button class="btn btn-outline btn-sm" onclick="doScan()" id="btn-scan">Scan / 扫描</button>
     <div class="net-list" id="net-list"></div>
 
-    <label>WiFi 名称 / SSID</label>
+    <label>SSID</label>
     <input id="ssid" placeholder="WiFi name">
 
-    <label>WiFi 密码 / Password</label>
+    <label>Password / 密码</label>
     <input id="pass" type="password" placeholder="WiFi password">
 
-    <button class="btn btn-primary" id="btn-send" onclick="doSend()">发送配置 / Send Config</button>
-    <div id="st2" class="status"></div>
+    <button class="btn btn-primary" onclick="doWifi()">Connect WiFi / 连接</button>
+    <div id="st3" class="status"></div>
+
+    <button class="btn btn-outline" style="margin-top:8px" onclick="skipWifi()">Skip / 跳过</button>
+  </div>
+
+  <!-- Step 4: Done -->
+  <div id="s4" class="step">
+    <div class="step-title" id="s4-title" style="text-align:center;font-size:22px">✓ Setup Complete! / 设置完成！</div>
+    <p class="step-desc" id="s4-desc" style="text-align:center">
+      Your Vibe Pi is ready.<br>设备准备就绪。
+    </p>
+    <div style="background:#1a1a1a;border-radius:12px;padding:16px;margin:16px 0">
+      <div class="setting-row"><span class="setting-label">Device</span><span class="setting-value" id="sum-name">Vibe Pi</span></div>
+      <div class="setting-row"><span class="setting-label">WiFi</span><span class="setting-value" id="sum-wifi">—</span></div>
+      <div class="setting-row"><span class="setting-label">IP</span><span class="setting-value" id="sum-ip">—</span></div>
+    </div>
+    <button class="btn btn-primary" onclick="doFinish()">Finish / 完成</button>
   </div>
 
   <p class="footer">Vibe Pi v0.2.0</p>
 </div>
 
 <script>
-let port, reader, writer, readBuf = '';
+let port,reader,writer,readBuf='',curStep=1,selLang='zh',wifiIP='';
 
-async function doConnect() {
-  const btn = document.getElementById('btn-connect');
-  const st = document.getElementById('st1');
-  try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
-    writer = port.writable.getWriter();
-    startReading();
-
-    // Ping device
-    await send({cmd:'ping'});
-    await sleep(500);
-
-    document.getElementById('dot').className = 'dot on';
-    document.getElementById('conn-status').textContent = '已连接 / Connected';
-    st.className = 'status ok';
-    st.textContent = '设备已连接 / Device connected';
-
-    setTimeout(() => {
-      document.getElementById('s1').className = 'step';
-      document.getElementById('s2').className = 'step active';
-    }, 800);
-  } catch(e) {
-    st.className = 'status err';
-    st.textContent = e.message;
-  }
+function goStep(n){
+  curStep=n;
+  for(let i=1;i<=4;i++) document.getElementById('s'+i).className='step'+(i===n?' active':'');
+  document.querySelectorAll('.pip').forEach((p,i)=>{
+    p.className='pip'+(i<n-1?' done':'')+(i===n-1?' active':'');
+  });
 }
 
-async function startReading() {
-  const decoder = new TextDecoderStream();
-  port.readable.pipeTo(decoder.writable);
-  reader = decoder.readable.getReader();
-  (async () => {
-    while (true) {
-      const {value, done} = await reader.read();
-      if (done) break;
-      readBuf += value;
-      let lines = readBuf.split('\n');
-      readBuf = lines.pop();
-      for (const line of lines) {
-        handleLine(line.trim());
-      }
+async function doConnect(){
+  const st=document.getElementById('st1');
+  try{
+    port=await navigator.serial.requestPort();
+    await port.open({baudRate:115200});
+    writer=port.writable.getWriter();
+    startReading();
+    await send({cmd:'ping'});
+    await sleep(600);
+    document.getElementById('dot').className='dot on';
+    st.className='status ok';st.textContent='✓ Connected / 已连接';
+    await send({cmd:'get_settings'});
+    await sleep(400);
+    setTimeout(()=>goStep(2),600);
+  }catch(e){st.className='status err';st.textContent=e.message}
+}
+
+async function startReading(){
+  const dec=new TextDecoderStream();
+  port.readable.pipeTo(dec.writable);
+  reader=dec.readable.getReader();
+  (async()=>{
+    while(true){
+      const{value,done}=await reader.read();
+      if(done)break;
+      readBuf+=value;
+      let lines=readBuf.split('\n');
+      readBuf=lines.pop();
+      for(const l of lines)handleLine(l.trim());
     }
   })();
 }
 
-let pendingResolve = null;
-function handleLine(line) {
-  if (!line.startsWith('{')) return;
-  try {
-    const msg = JSON.parse(line);
-    console.log('RX:', msg);
-    if (msg.networks) showNetworks(msg.networks);
-    if (pendingResolve) { pendingResolve(msg); pendingResolve = null; }
-  } catch(e) {}
+function handleLine(line){
+  if(!line.startsWith('{'))return;
+  try{
+    const m=JSON.parse(line);
+    console.log('RX:',m);
+    if(m.networks) showNets(m.networks);
+    if(m.event==='wifi_connected'){
+      wifiIP=m.ip||'';
+      document.getElementById('st3').className='status ok';
+      document.getElementById('st3').textContent='✓ Connected! IP: '+wifiIP;
+      setTimeout(()=>{
+        document.getElementById('sum-wifi').textContent=document.getElementById('ssid').value;
+        document.getElementById('sum-ip').textContent=wifiIP;
+        goStep(4);
+      },1000);
+    }
+    if(m.event==='wifi_failed'){
+      document.getElementById('st3').className='status err';
+      document.getElementById('st3').textContent='WiFi failed / 连接失败';
+    }
+    if(m.name!==undefined&&m.brightness!==undefined){
+      document.getElementById('dev-name').value=m.name;
+      document.getElementById('brightness').value=m.brightness;
+      document.getElementById('br-val').textContent=m.brightness;
+      if(m.lang==='en') pickLang('en');
+    }
+  }catch(e){}
 }
 
-async function send(obj) {
-  const json = JSON.stringify(obj) + '\n';
-  await writer.write(new TextEncoder().encode(json));
-  console.log('TX:', json.trim());
+async function send(obj){
+  const j=JSON.stringify(obj)+'\n';
+  await writer.write(new TextEncoder().encode(j));
+  console.log('TX:',j.trim());
 }
 
-async function doScan() {
-  document.getElementById('btn-scan').disabled = true;
-  document.getElementById('btn-scan').textContent = '扫描中... / Scanning...';
+function pickLang(l){
+  selLang=l;
+  document.getElementById('lang-zh').className='lang-btn'+(l==='zh'?' sel':'');
+  document.getElementById('lang-en').className='lang-btn'+(l==='en'?' sel':'');
+}
+
+async function saveBasic(){
+  await send({cmd:'set_lang',lang:selLang});
+  await send({cmd:'set_name',name:document.getElementById('dev-name').value});
+  await send({cmd:'set_brightness',value:parseInt(document.getElementById('brightness').value)});
+  document.getElementById('sum-name').textContent=document.getElementById('dev-name').value;
+  goStep(3);
+}
+
+async function doScan(){
+  const btn=document.getElementById('btn-scan');
+  btn.disabled=true;btn.textContent='Scanning...';
   await send({cmd:'scan'});
-  setTimeout(() => {
-    document.getElementById('btn-scan').disabled = false;
-    document.getElementById('btn-scan').textContent = '扫描 WiFi / Scan WiFi';
-  }, 5000);
+  setTimeout(()=>{btn.disabled=false;btn.textContent='Scan / 扫描'},8000);
 }
 
-function showNetworks(nets) {
-  const el = document.getElementById('net-list');
-  el.innerHTML = nets.map(n =>
-    `<div class="net-item" onclick="selectNet('${n.ssid.replace(/'/g,"\\'")}')">
-      <span>${n.ssid}</span><span class="net-rssi">${n.rssi} dBm</span>
-    </div>`
+function showNets(nets){
+  nets.sort((a,b)=>b.rssi-a.rssi);
+  document.getElementById('net-list').innerHTML=nets.map(n=>
+    `<div class="net-item" onclick="selNet(this,'${n.ssid.replace(/'/g,"\\'")}')">
+      <span>${n.ssid}${n.enc?'<span class="net-lock">🔒</span>':''}</span>
+      <span class="net-rssi">${n.rssi}dBm</span></div>`
   ).join('');
+  document.getElementById('btn-scan').disabled=false;
+  document.getElementById('btn-scan').textContent='Scan / 扫描';
 }
 
-function selectNet(ssid) {
-  document.getElementById('ssid').value = ssid;
-  document.querySelectorAll('.net-item').forEach(el => {
-    el.classList.toggle('selected', el.querySelector('span').textContent === ssid);
-  });
+function selNet(el,ssid){
+  document.querySelectorAll('.net-item').forEach(e=>e.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('ssid').value=ssid;
 }
 
-async function doSend() {
-  const ssid = document.getElementById('ssid').value.trim();
-  const pass = document.getElementById('pass').value;
-  const st = document.getElementById('st2');
-  if (!ssid) { st.className='status err'; st.textContent='请输入 SSID'; return; }
-
-  document.getElementById('btn-send').disabled = true;
-  st.className = 'status info';
-  st.textContent = '发送中... / Sending...';
-
-  await send({cmd:'wifi', ssid, pass});
-
-  st.className = 'status ok';
-  st.textContent = '✓ 配置已发送！设备正在连接 WiFi... / Config sent! Connecting...';
-  document.getElementById('btn-send').disabled = false;
+async function doWifi(){
+  const ssid=document.getElementById('ssid').value.trim();
+  const pass=document.getElementById('pass').value;
+  const st=document.getElementById('st3');
+  if(!ssid){st.className='status err';st.textContent='Enter SSID';return}
+  st.className='status info';st.textContent='Connecting / 连接中...';
+  await send({cmd:'wifi',ssid,pass});
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function skipWifi(){
+  document.getElementById('sum-wifi').textContent='Skipped';
+  document.getElementById('sum-ip').textContent='—';
+  goStep(4);
+}
+
+async function doFinish(){
+  await send({cmd:'finish_setup'});
+  document.getElementById('s4-title').textContent='🎉 Done! / 完成！';
+  document.getElementById('s4-desc').textContent='Device is restarting... / 设备重启中...';
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 </script>
 </body>
 </html>
