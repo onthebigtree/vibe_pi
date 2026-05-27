@@ -133,7 +133,6 @@ void loop() {
     watchdog_feed();
     lv_timer_handler();
     handle_button();
-    display_poll_touch_debug();
 
     switch (appState) {
 
