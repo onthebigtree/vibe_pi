@@ -231,18 +231,9 @@ void loop() {
     case AppState::CONNECTING_WS:
         ws_client_loop();
         if (ws_client_is_connected()) {
-            if (!pairing_is_paired()) {
-                set_state(AppState::PAIRING);
-                // Pairing code already generated during OOBE or generate now
-                if (strlen(pairing_get_code()) == 0) {
-                    pairing_generate_code();
-                }
-                ui_show_pairing(pairing_get_code());
-            } else {
-                set_state(AppState::RUNNING);
-                ui_show_dashboard();
-                Serial.println("[App] Connected and paired — RUNNING");
-            }
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+            Serial.println("[App] Connected — RUNNING");
         } else if (state_elapsed() > 15000) {
             set_state(AppState::DISCOVERING);
             hostInfo.found = false;
