@@ -31,14 +31,17 @@
 #define SP_XL  (pct_w(7))
 
 // ── Custom CJK fonts (Noto Sans SC subset) ──
-LV_FONT_DECLARE(font_zh_16);
-LV_FONT_DECLARE(font_zh_22);
+LV_FONT_DECLARE(font_zh_14);
+LV_FONT_DECLARE(font_zh_20);
+LV_FONT_DECLARE(font_zh_28);
 
 // ── Fonts (size-adaptive, CJK-capable) ──
-#define FONT_TITLE    (scr_w() > 300 ? &font_zh_22 : &font_zh_16)
-#define FONT_LARGE    &font_zh_22
-#define FONT_BODY     &font_zh_16
-#define FONT_SMALL    &font_zh_16
+// 466px screen: 28px title, 20px body, 14px small
+// 240px screen: 20px title, 14px body, 14px small
+#define FONT_TITLE    (scr_w() > 300 ? &font_zh_28 : &font_zh_20)
+#define FONT_LARGE    (scr_w() > 300 ? &font_zh_28 : &font_zh_20)
+#define FONT_BODY     (scr_w() > 300 ? &font_zh_20 : &font_zh_14)
+#define FONT_SMALL    &font_zh_14
 
 // ── Arc dimensions (proportional to screen) ──
 #define ARC_OUTER_SIZE   (pct_w(86))
