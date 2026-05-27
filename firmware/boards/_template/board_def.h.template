@@ -1,0 +1,57 @@
+// Board Support Package Template — Copy and fill in for your board
+#pragma once
+
+#include "hal/board.h"
+
+// ── Display ──
+// Supported types: CO5300 (QSPI), GC9A01 (SPI), ST7789 (SPI), SH8601 (QSPI)
+#define BSP_DISPLAY_WIDTH    240
+#define BSP_DISPLAY_HEIGHT   240
+#define BSP_DISPLAY_ROUND    true
+#define BSP_DISPLAY_RADIUS   120
+#define BSP_COLOR_DEPTH      16
+
+// For SPI displays:
+// #define BSP_SPI_MOSI  xx
+// #define BSP_SPI_SCK   xx
+// #define BSP_SPI_CS    xx
+// #define BSP_SPI_DC    xx
+// #define BSP_DISP_RST  xx
+// #define BSP_DISP_BL   xx
+
+// For QSPI displays:
+// #define BSP_QSPI_CS   xx
+// #define BSP_QSPI_SCK  xx
+// #define BSP_QSPI_D0   xx
+// #define BSP_QSPI_D1   xx
+// #define BSP_QSPI_D2   xx
+// #define BSP_QSPI_D3   xx
+// #define BSP_DISP_RST  xx
+// #define BSP_DISP_TE   xx
+
+// ── Touch (optional) ──
+// Supported types: CST9217, CST816S, FT6236, GT911
+// #define BSP_TOUCH_SDA  xx
+// #define BSP_TOUCH_SCL  xx
+// #define BSP_TOUCH_INT  xx
+// #define BSP_TOUCH_RST  xx
+
+// ── Peripherals ──
+// #define BSP_BUTTON_PIN  0
+// #define BSP_IMU_ADDR    0x6B
+
+static constexpr BoardInfo BSP_BOARD_INFO = {
+    .board_id   = "your-board-id",
+    .board_name = "Your Board Name",
+    .mcu        = "esp32s3",  // or esp32s2, esp32c3, esp32c6
+    .caps = {
+        .has_touch  = true,
+        .has_imu    = false,
+        .has_mic    = false,
+        .has_rtc    = false,
+        .has_psram  = true,
+        .has_button = true,
+        .button_pin = 0,
+        .button_active_low = true,
+    },
+};

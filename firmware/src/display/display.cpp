@@ -1,77 +1,75 @@
 #include "display.h"
-#include "config.h"
+#include "hal/board.h"
 #include <Arduino.h>
-#include <SPI.h>
 
-// ── LVGL display buffers (in PSRAM for 466px wide display) ──
+static DisplayHAL *g_display = nullptr;
+static TouchHAL   *g_touch   = nullptr;
+static lv_display_t *lv_disp = nullptr;
+static lv_indev_t   *lv_indev = nullptr;
+
 static lv_color_t *buf1 = nullptr;
 static lv_color_t *buf2 = nullptr;
-static lv_display_t *disp = nullptr;
 
-// TODO: Implement CO5300 QSPI initialization
-// Reference: Waveshare ESP32-S3 1.75" AMOLED example code
-// The CO5300 uses QSPI interface for high-speed pixel data transfer.
-// Init sequence: reset → sleep out → display on → set column/row → write memory
-
-static void disp_flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t *px_map) {
-    // TODO: Send pixel data to CO5300 via QSPI
-    //
-    // Pseudocode:
-    //   1. Set column address (area->x1 to area->x2)
-    //   2. Set row address (area->y1 to area->y2)
-    //   3. Write memory start
-    //   4. Transfer px_map via QSPI DMA
-    //   5. Signal flush ready
-
-    lv_display_flush_ready(display);
+static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map) {
+    if (g_display) g_display->flush(area, px_map);
+    lv_display_flush_ready(d);
 }
 
-// TODO: Implement CST9217 touch input
-// Reference: Waveshare CST9217 driver
-// The CST9217 communicates via I2C, reporting touch coordinates.
-
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
-    // TODO: Read touch data from CST9217 via I2C
-    //
-    // Pseudocode:
-    //   1. Read touch registers via Wire
-    //   2. If touch detected: data->state = LV_INDEV_STATE_PRESSED
-    //   3. Set data->point.x / data->point.y
-    //   4. Else: data->state = LV_INDEV_STATE_RELEASED
-
-    data->state = LV_INDEV_STATE_RELEASED;
+    if (!g_touch) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    TouchPoint tp = g_touch->read();
+    data->point.x = tp.x;
+    data->point.y = tp.y;
+    data->state = tp.pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
 void display_init() {
     lv_init();
 
-    // Allocate display buffers in PSRAM for the large 466px display
-    size_t buf_size = SCREEN_WIDTH * 60;
-    buf1 = (lv_color_t *)ps_malloc(buf_size * sizeof(lv_color_t));
-    buf2 = (lv_color_t *)ps_malloc(buf_size * sizeof(lv_color_t));
+    const BoardInfo &board = board_get_info();
 
-    if (!buf1 || !buf2) {
-        Serial.println("[Display] FATAL: PSRAM alloc failed — falling back to smaller buffers");
-        buf_size = SCREEN_WIDTH * 20;
-        buf1 = (lv_color_t *)malloc(buf_size * sizeof(lv_color_t));
-        buf2 = (lv_color_t *)malloc(buf_size * sizeof(lv_color_t));
+    // Create display driver via HAL
+    g_display = board_create_display();
+    if (!g_display || !g_display->init()) {
+        Serial.println("[Display] FATAL: Display init failed");
+        return;
     }
 
-    disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
-    lv_display_set_flush_cb(disp, disp_flush_cb);
-    lv_display_set_buffers(disp, buf1, buf2, buf_size * sizeof(lv_color_t), LV_DISPLAY_RENDER_MODE_PARTIAL);
+    const DisplayConfig &cfg = g_display->config();
 
-    // TODO: Call CO5300 hardware init here
-    // co5300_init();
+    // Allocate buffers — PSRAM if available, fallback to heap
+    size_t buf_px = cfg.buf_pixel_count;
+    if (board.caps.has_psram && psramFound()) {
+        buf1 = (lv_color_t *)ps_malloc(buf_px * sizeof(lv_color_t));
+        buf2 = (lv_color_t *)ps_malloc(buf_px * sizeof(lv_color_t));
+    }
+    if (!buf1 || !buf2) {
+        buf_px = cfg.width * 10; // conservative fallback
+        buf1 = (lv_color_t *)malloc(buf_px * sizeof(lv_color_t));
+        buf2 = (lv_color_t *)malloc(buf_px * sizeof(lv_color_t));
+    }
 
-    // Register touch input device
-    lv_indev_t *indev = lv_indev_create();
-    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, touch_read_cb);
+    lv_disp = lv_display_create(cfg.width, cfg.height);
+    lv_display_set_flush_cb(lv_disp, disp_flush_cb);
+    lv_display_set_buffers(lv_disp, buf1, buf2, buf_px * sizeof(lv_color_t),
+                           LV_DISPLAY_RENDER_MODE_PARTIAL);
 
-    // TODO: Call CST9217 hardware init here
-    // cst9217_init();
+    // Create touch input if available
+    g_touch = board_create_touch();
+    if (g_touch && g_touch->init()) {
+        lv_indev = lv_indev_create();
+        lv_indev_set_type(lv_indev, LV_INDEV_TYPE_POINTER);
+        lv_indev_set_read_cb(lv_indev, touch_read_cb);
+        Serial.println("[Display] Touch enabled");
+    }
 
-    Serial.printf("[Display] LVGL initialized (%dx%d, buf=%zu px)\n",
-                  SCREEN_WIDTH, SCREEN_HEIGHT, buf_size);
+    Serial.printf("[Display] %s: %dx%d, buf=%zu px\n",
+                  board.board_name, cfg.width, cfg.height, buf_px);
+}
+
+void display_set_brightness(uint8_t level) {
+    if (g_display) g_display->set_brightness(level);
 }

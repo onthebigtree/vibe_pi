@@ -93,20 +93,28 @@ async def run(cfg: AppConfig):
             system_data: dict = {}
             active_tool = "idle"
 
-            for collector in collectors:
+            # Concurrent collection — all collectors run in parallel
+            async def safe_collect(c):
                 try:
-                    data = await collector.collect()
+                    return c.name, await asyncio.wait_for(c.collect(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Collector {c.name} timed out")
+                    return c.name, None
                 except Exception as e:
-                    logger.warning(f"Collector {collector.name} error: {e}")
-                    continue
+                    logger.warning(f"Collector {c.name} error: {e}")
+                    return c.name, None
+
+            results = await asyncio.gather(*(safe_collect(c) for c in collectors))
+
+            for name, data in results:
                 if data is None:
                     continue
-                if collector.name == "system":
+                if name == "system":
                     system_data = data
                 else:
-                    tools_data[collector.name] = data
+                    tools_data[name] = data
                     if data.get("status") == "active":
-                        active_tool = collector.name
+                        active_tool = name
 
             if server.device_count > 0:
                 await server.broadcast_status(tools_data, system_data, active_tool)

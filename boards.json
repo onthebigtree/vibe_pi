@@ -1,0 +1,54 @@
+{
+  "boards": [
+    {
+      "id": "waveshare-esp32s3-amoled-175",
+      "name": "Waveshare 1.75\" Round AMOLED",
+      "mcu": "esp32s3",
+      "display": {
+        "size_inch": 1.75,
+        "width": 466,
+        "height": 466,
+        "type": "AMOLED",
+        "round": true,
+        "driver_ic": "CO5300",
+        "interface": "QSPI"
+      },
+      "touch": {
+        "type": "capacitive",
+        "driver_ic": "CST9217",
+        "interface": "I2C"
+      },
+      "peripherals": ["imu", "rtc", "mic", "button"],
+      "flash_mb": 16,
+      "psram_mb": 8,
+      "status": "official",
+      "tier": 1,
+      "pio_env": "waveshare-175-amoled"
+    },
+    {
+      "id": "gc9a01-round-240-generic",
+      "name": "ESP32-S3 1.28\" Round LCD (GC9A01)",
+      "mcu": "esp32s3",
+      "display": {
+        "size_inch": 1.28,
+        "width": 240,
+        "height": 240,
+        "type": "LCD",
+        "round": true,
+        "driver_ic": "GC9A01",
+        "interface": "SPI"
+      },
+      "touch": {
+        "type": "capacitive",
+        "driver_ic": "CST816S",
+        "interface": "I2C"
+      },
+      "peripherals": ["button"],
+      "flash_mb": 8,
+      "psram_mb": 8,
+      "status": "community",
+      "tier": 2,
+      "pio_env": "gc9a01-round-generic"
+    }
+  ]
+}
