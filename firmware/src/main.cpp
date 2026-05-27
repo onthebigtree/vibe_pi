@@ -131,6 +131,7 @@ void setup() {
 
 void loop() {
     watchdog_feed();
+    display_update_touch();
     lv_timer_handler();
     handle_button();
 

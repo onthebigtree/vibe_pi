@@ -55,20 +55,20 @@ bool CST9217Driver::init() {
 TouchPoint CST9217Driver::read() {
     TouchPoint tp = {0, 0, false};
 
-    uint8_t buf[12];
+    // INT pin: LOW = touch active, HIGH = no touch
+    if (_int != 0xFF && digitalRead(_int) == HIGH) {
+        return tp;
+    }
+
+    uint8_t buf[8];
     int n = read_reg16(I2C_ADDR, CST9217_REG_DATA, buf, 7);
     if (n < 7) return tp;
 
-    // buf[0]: gesture/event (0xFF = idle)
     if (buf[0] == 0xFF) return tp;
 
-    // buf[5]: touch count, buf[6]: 0xAB = valid
     uint8_t count = buf[5];
     if (count == 0 || buf[6] != 0xAB) return tp;
 
-    // SensorLib CST92xx coordinate decoding:
-    // X = (buf[1] << 4) | (buf[3] >> 4)
-    // Y = (buf[2] << 4) | (buf[3] & 0x0F)
     uint16_t x = ((uint16_t)buf[1] << 4) | (buf[3] >> 4);
     uint16_t y = ((uint16_t)buf[2] << 4) | (buf[3] & 0x0F);
 

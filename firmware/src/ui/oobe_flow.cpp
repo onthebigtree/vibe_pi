@@ -67,19 +67,14 @@ void oobe_init() {
 void oobe_show() {
     oobe_scr = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(oobe_scr, CLR_BG, 0);
-    lv_obj_set_style_radius(oobe_scr, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_scrollbar_mode(oobe_scr, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(oobe_scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    content_area = lv_obj_create(oobe_scr);
-    lv_obj_set_size(content_area, SCREEN_WIDTH, SCREEN_HEIGHT);
-    lv_obj_set_style_bg_opa(content_area, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(content_area, 0, 0);
-    lv_obj_set_style_pad_all(content_area, 0, 0);
-    lv_obj_set_scrollbar_mode(content_area, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_center(content_area);
+    // No intermediate container — buttons go directly on screen
+    content_area = oobe_scr;
 
     show_language_step();
-    lv_screen_load_anim(oobe_scr, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, false);
+    lv_screen_load(oobe_scr);
 }
 
 void oobe_loop() {
@@ -94,6 +89,10 @@ bool oobe_is_finished() { return step == OobeStep::DONE; }
 static void clear_content() {
     if (content_area) {
         lv_obj_clean(content_area);
+        // Re-apply screen style after clean
+        lv_obj_set_style_bg_color(content_area, CLR_BG, 0);
+        lv_obj_set_scrollbar_mode(content_area, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_remove_flag(content_area, LV_OBJ_FLAG_SCROLLABLE);
     }
 }
 
@@ -102,6 +101,7 @@ static void clear_content() {
 // ═══════════════════════════════════════════════════════════════
 
 static void on_lang_zh(lv_event_t *e) {
+    Serial.println("[OOBE] >>> CHINESE button clicked! <<<");
     i18n_set_lang(Lang::ZH);
     settings_get().language = Lang::ZH;
     step = OobeStep::WIFI_SCAN;
@@ -110,6 +110,7 @@ static void on_lang_zh(lv_event_t *e) {
 }
 
 static void on_lang_en(lv_event_t *e) {
+    Serial.println("[OOBE] >>> ENGLISH button clicked! <<<");
     i18n_set_lang(Lang::EN);
     settings_get().language = Lang::EN;
     step = OobeStep::WIFI_SCAN;
