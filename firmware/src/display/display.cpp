@@ -15,6 +15,8 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
     lv_display_flush_ready(d);
 }
 
+static uint32_t _touch_dbg_counter = 0;
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     if (!g_touch) {
         data->state = LV_INDEV_STATE_RELEASED;
@@ -24,10 +26,19 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     data->point.x = tp.x;
     data->point.y = tp.y;
     data->state = tp.pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+
+    if (tp.pressed && (++_touch_dbg_counter % 10 == 0)) {
+        Serial.printf("[LVGL_TOUCH] x=%d y=%d\n", tp.x, tp.y);
+    }
+}
+
+static void lv_tick_cb(void) {
+    lv_tick_inc(5);
 }
 
 void display_init() {
     lv_init();
+    lv_tick_set_cb((lv_tick_get_cb_t)millis);
 
     const BoardInfo &board = board_get_info();
 
@@ -63,6 +74,7 @@ void display_init() {
         lv_indev = lv_indev_create();
         lv_indev_set_type(lv_indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(lv_indev, touch_read_cb);
+        lv_indev_set_display(lv_indev, lv_disp);
         Serial.println("[Display] Touch enabled");
     }
 
@@ -72,4 +84,12 @@ void display_init() {
 
 void display_set_brightness(uint8_t level) {
     if (g_display) g_display->set_brightness(level);
+}
+
+void display_poll_touch_debug() {
+    if (!g_touch) return;
+    TouchPoint tp = g_touch->read();
+    if (tp.pressed) {
+        Serial.printf("[RAW_TOUCH] x=%d y=%d\n", tp.x, tp.y);
+    }
 }

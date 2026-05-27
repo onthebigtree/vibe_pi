@@ -4,21 +4,62 @@
 
 #define QSPI_HOST     SPI2_HOST
 #define QSPI_FREQ     40000000
-#define MAX_TRANSFER   (1024 * 2)
+#define MAX_PIXELS     1024
 #define COL_OFFSET     6
+#define ROW_OFFSET     0
 
 static spi_device_handle_t _spi = nullptr;
 static spi_transaction_ext_t _tran_ext;
 static spi_transaction_t *_tran;
 static uint8_t *_dma_buf = nullptr;
-static uint8_t *_dma_buf2 = nullptr;
 
 static uint32_t _cs_mask;
 static volatile uint32_t *_cs_set;
 static volatile uint32_t *_cs_clr;
 
-static void cs_high() { *_cs_set = _cs_mask; }
-static void cs_low()  { *_cs_clr = _cs_mask; }
+static inline void CS_HIGH() { *_cs_set = _cs_mask; }
+static inline void CS_LOW()  { *_cs_clr = _cs_mask; }
+static inline void POLL_START() { spi_device_polling_start(_spi, _tran, portMAX_DELAY); }
+static inline void POLL_END()   { spi_device_polling_end(_spi, portMAX_DELAY); }
+
+// ── Exactly match Waveshare writeCommand ──
+static void writeCommand(uint8_t c) {
+    CS_LOW();
+    _tran_ext.base.flags = SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR;
+    _tran_ext.base.cmd = 0x02;
+    _tran_ext.base.addr = ((uint32_t)c) << 8;
+    _tran_ext.base.tx_buffer = NULL;
+    _tran_ext.base.length = 0;
+    POLL_START(); POLL_END();
+    CS_HIGH();
+}
+
+// ── Exactly match Waveshare writeC8D8 ──
+static void writeC8D8(uint8_t c, uint8_t d) {
+    CS_LOW();
+    _tran_ext.base.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR;
+    _tran_ext.base.cmd = 0x02;
+    _tran_ext.base.addr = ((uint32_t)c) << 8;
+    _tran_ext.base.tx_data[0] = d;
+    _tran_ext.base.length = 8;
+    POLL_START(); POLL_END();
+    CS_HIGH();
+}
+
+// ── Exactly match Waveshare writeC8D16D16 ──
+static void writeC8D16D16(uint8_t c, uint16_t d1, uint16_t d2) {
+    CS_LOW();
+    _tran_ext.base.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR;
+    _tran_ext.base.cmd = 0x02;
+    _tran_ext.base.addr = ((uint32_t)c) << 8;
+    _tran_ext.base.tx_data[0] = d1 >> 8;
+    _tran_ext.base.tx_data[1] = d1 & 0xFF;
+    _tran_ext.base.tx_data[2] = d2 >> 8;
+    _tran_ext.base.tx_data[3] = d2 & 0xFF;
+    _tran_ext.base.length = 32;
+    POLL_START(); POLL_END();
+    CS_HIGH();
+}
 
 CO5300Driver::CO5300Driver(uint8_t cs, uint8_t sck, uint8_t d0, uint8_t d1,
                            uint8_t d2, uint8_t d3, int8_t rst, int8_t te)
@@ -49,7 +90,6 @@ bool CO5300Driver::init() {
     pinMode(_cs, OUTPUT);
     digitalWrite(_cs, HIGH);
 
-    // Setup fast CS toggle via direct register access
     _cs_mask = digitalPinToBitMask(_cs);
     if (_cs >= 32) {
         _cs_set = (volatile uint32_t *)GPIO_OUT1_W1TS_REG;
@@ -59,15 +99,21 @@ bool CO5300Driver::init() {
         _cs_clr = (volatile uint32_t *)GPIO_OUT_W1TC_REG;
     }
 
-    // Init QSPI bus
-    spi_bus_config_t bus_cfg = {};
-    bus_cfg.mosi_io_num  = _d0;
-    bus_cfg.miso_io_num  = _d1;
-    bus_cfg.sclk_io_num  = _sck;
-    bus_cfg.quadwp_io_num = _d2;
-    bus_cfg.quadhd_io_num = _d3;
-    bus_cfg.max_transfer_sz = MAX_TRANSFER + 8;
-    bus_cfg.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_GPIO_PINS;
+    // SPI bus — exactly match Waveshare: mosi=D0, miso=D1, quadwp=D2, quadhd=D3
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num  = _d0,
+        .miso_io_num  = _d1,
+        .sclk_io_num  = _sck,
+        .quadwp_io_num = _d2,
+        .quadhd_io_num = _d3,
+        .data4_io_num = -1,
+        .data5_io_num = -1,
+        .data6_io_num = -1,
+        .data7_io_num = -1,
+        .max_transfer_sz = (MAX_PIXELS * 16) + 8,
+        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_GPIO_PINS,
+        .intr_flags = 0,
+    };
 
     esp_err_t ret = spi_bus_initialize(QSPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK) {
@@ -75,14 +121,23 @@ bool CO5300Driver::init() {
         return false;
     }
 
-    spi_device_interface_config_t dev_cfg = {};
-    dev_cfg.command_bits = 8;
-    dev_cfg.address_bits = 24;
-    dev_cfg.mode = 0;
-    dev_cfg.clock_speed_hz = QSPI_FREQ;
-    dev_cfg.spics_io_num = -1;
-    dev_cfg.flags = SPI_DEVICE_HALFDUPLEX;
-    dev_cfg.queue_size = 1;
+    // Device config — exactly match Waveshare
+    spi_device_interface_config_t dev_cfg = {
+        .command_bits = 8,
+        .address_bits = 24,
+        .dummy_bits = 0,
+        .mode = 0,
+        .duty_cycle_pos = 0,
+        .cs_ena_pretrans = 0,
+        .cs_ena_posttrans = 0,
+        .clock_speed_hz = QSPI_FREQ,
+        .input_delay_ns = 0,
+        .spics_io_num = -1,
+        .flags = SPI_DEVICE_HALFDUPLEX,
+        .queue_size = 1,
+        .pre_cb = nullptr,
+        .post_cb = nullptr,
+    };
 
     ret = spi_bus_add_device(QSPI_HOST, &dev_cfg, &_spi);
     if (ret != ESP_OK) {
@@ -95,111 +150,50 @@ bool CO5300Driver::init() {
     memset(&_tran_ext, 0, sizeof(_tran_ext));
     _tran = (spi_transaction_t *)&_tran_ext;
 
-    // DMA-aligned buffers for pixel transfer
-    _dma_buf = (uint8_t *)heap_caps_aligned_alloc(16, MAX_TRANSFER, MALLOC_CAP_DMA);
-    _dma_buf2 = (uint8_t *)heap_caps_aligned_alloc(16, MAX_TRANSFER, MALLOC_CAP_DMA);
-    if (!_dma_buf || !_dma_buf2) {
-        Serial.println("[CO5300] DMA buffer alloc failed");
+    _dma_buf = (uint8_t *)heap_caps_aligned_alloc(16, MAX_PIXELS * 2, MALLOC_CAP_DMA);
+    if (!_dma_buf) {
+        Serial.println("[CO5300] DMA alloc failed");
         return false;
     }
 
-    // ── CO5300 Init Sequence (from Waveshare official Arduino_CO5300) ──
-
-    // Sleep Out
-    send_cmd(0x11);
+    // ── Init sequence — exactly match Waveshare co5300_init_operations[] ──
+    writeCommand(0x11);             // Sleep Out
     delay(120);
-
-    // Select command page 0
-    send_cmd_byte(0xFE, 0x00);
-
-    // Enable QSPI mode
-    send_cmd_byte(0xC4, 0x80);
-
-    // Pixel format: RGB565
-    send_cmd_byte(0x3A, 0x55);
-
-    // Brightness control enable
-    send_cmd_byte(0x53, 0x20);
-
-    // HBM brightness max
-    send_cmd_byte(0x63, 0xFF);
-
-    // Display ON
-    send_cmd(0x29);
-
-    // Normal brightness
-    send_cmd_byte(0x51, 0xD0);
-
-    // Contrast enhancement off
-    send_cmd_byte(0x58, 0x00);
-
+    writeC8D8(0xFE, 0x00);         // Command page 0
+    writeC8D8(0xC4, 0x80);         // SPI mode: enable QSPI
+    writeC8D8(0x3A, 0x55);         // Pixel format: RGB565
+    writeC8D8(0x53, 0x20);         // Brightness ctrl enable
+    writeC8D8(0x63, 0xFF);         // HBM brightness max
+    writeCommand(0x29);             // Display ON
+    writeC8D8(0x51, 0xD0);         // Normal brightness 208/255
+    writeC8D8(0x58, 0x00);         // Contrast enhancement off
     delay(10);
-
-    // Inversion off
-    send_cmd(0x20);
+    writeCommand(0x20);             // Inversion Off
 
     Serial.println("[CO5300] Init complete");
     return true;
 }
 
-void CO5300Driver::send_cmd(uint8_t cmd) {
-    cs_low();
-    _tran_ext.base.flags = SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR;
-    _tran_ext.base.cmd = 0x02;
-    _tran_ext.base.addr = ((uint32_t)cmd) << 8;
-    _tran_ext.base.tx_buffer = NULL;
-    _tran_ext.base.length = 0;
-    spi_device_polling_start(_spi, _tran, portMAX_DELAY);
-    spi_device_polling_end(_spi, portMAX_DELAY);
-    cs_high();
-}
+void CO5300Driver::flush(const lv_area_t *area, uint8_t *px_map) {
+    uint16_t x = area->x1 + COL_OFFSET;
+    uint16_t y = area->y1 + ROW_OFFSET;
+    uint16_t w = area->x2 - area->x1 + 1;
+    uint16_t h = area->y2 - area->y1 + 1;
+    uint32_t total_px = w * h;
 
-void CO5300Driver::send_cmd_byte(uint8_t cmd, uint8_t data) {
-    cs_low();
-    _tran_ext.base.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR;
-    _tran_ext.base.cmd = 0x02;
-    _tran_ext.base.addr = ((uint32_t)cmd) << 8;
-    _tran_ext.base.tx_data[0] = data;
-    _tran_ext.base.length = 8;
-    spi_device_polling_start(_spi, _tran, portMAX_DELAY);
-    spi_device_polling_end(_spi, portMAX_DELAY);
-    cs_high();
-}
+    // Set address window — match Waveshare writeAddrWindow exactly
+    writeC8D16D16(0x2A, x, x + w - 1);   // Column address set
+    writeC8D16D16(0x2B, y, y + h - 1);   // Row address set
+    writeCommand(0x2C);                    // Memory Write Start
 
-void CO5300Driver::send_cmd_data(uint8_t cmd, const uint8_t *data, size_t len) {
-    cs_low();
-    _tran_ext.base.flags = SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR;
-    _tran_ext.base.cmd = 0x02;
-    _tran_ext.base.addr = ((uint32_t)cmd) << 8;
-    _tran_ext.base.tx_buffer = data;
-    _tran_ext.base.length = len * 8;
-    spi_device_polling_start(_spi, _tran, portMAX_DELAY);
-    spi_device_polling_end(_spi, portMAX_DELAY);
-    cs_high();
-}
-
-void CO5300Driver::set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    // Apply column offset
-    x0 += COL_OFFSET;
-    x1 += COL_OFFSET;
-
-    // Column address set
-    uint8_t col[4] = {(uint8_t)(x0 >> 8), (uint8_t)(x0 & 0xFF),
-                      (uint8_t)(x1 >> 8), (uint8_t)(x1 & 0xFF)};
-    send_cmd_data(0x2A, col, 4);
-
-    // Row address set
-    uint8_t row[4] = {(uint8_t)(y0 >> 8), (uint8_t)(y0 & 0xFF),
-                      (uint8_t)(y1 >> 8), (uint8_t)(y1 & 0xFF)};
-    send_cmd_data(0x2B, row, 4);
-}
-
-void CO5300Driver::write_pixels(const uint8_t *data, size_t len) {
+    // Write pixel data via QIO — match Waveshare writePixels
     bool first = true;
-    cs_low();
+    uint16_t *src = (uint16_t *)px_map;
+    uint32_t remaining = total_px;
 
-    while (len > 0) {
-        size_t chunk = (len > MAX_TRANSFER) ? MAX_TRANSFER : len;
+    CS_LOW();
+    while (remaining > 0) {
+        uint32_t chunk = (remaining > MAX_PIXELS) ? MAX_PIXELS : remaining;
 
         if (first) {
             _tran_ext.base.flags = SPI_TRANS_MODE_QIO;
@@ -214,48 +208,46 @@ void CO5300Driver::write_pixels(const uint8_t *data, size_t len) {
             _tran_ext.dummy_bits = 0;
         }
 
-        // Byte-swap RGB565 LE→BE for CO5300
-        uint16_t *src = (uint16_t *)data;
+        // Byte-swap RGB565 LE→BE (match Waveshare MSB_32_16_16_SET)
         uint16_t *dst = (uint16_t *)_dma_buf;
-        size_t px_count = chunk / 2;
-        for (size_t i = 0; i < px_count; i++) {
+        for (uint32_t i = 0; i < chunk; i++) {
             dst[i] = __builtin_bswap16(src[i]);
         }
+
         _tran_ext.base.tx_buffer = _dma_buf;
-        _tran_ext.base.length = chunk * 8;
+        _tran_ext.base.length = chunk << 4;   // chunk * 16 bits
 
-        spi_device_polling_start(_spi, _tran, portMAX_DELAY);
-        spi_device_polling_end(_spi, portMAX_DELAY);
+        POLL_START();
+        POLL_END();
 
-        data += chunk;
-        len -= chunk;
+        src += chunk;
+        remaining -= chunk;
     }
-
-    cs_high();
-}
-
-void CO5300Driver::flush(const lv_area_t *area, uint8_t *px_map) {
-    set_window(area->x1, area->y1, area->x2, area->y2);
-
-    uint32_t size = (area->x2 - area->x1 + 1) * (area->y2 - area->y1 + 1) * 2;
-    write_pixels(px_map, size);
+    CS_HIGH();
 }
 
 void CO5300Driver::set_brightness(uint8_t pct) {
     uint8_t val = (uint32_t)pct * 255 / 100;
-    send_cmd_byte(0x51, val);
+    writeC8D8(0x51, val);
 }
 
 void CO5300Driver::sleep() {
-    send_cmd(0x28);
+    writeCommand(0x28);
     delay(120);
-    send_cmd(0x10);
+    writeCommand(0x10);
     delay(120);
 }
 
 void CO5300Driver::wake() {
-    send_cmd(0x29);
+    writeCommand(0x29);
     delay(120);
-    send_cmd(0x11);
+    writeCommand(0x11);
     delay(120);
 }
+
+// These are no longer used directly but kept for HAL interface compatibility
+void CO5300Driver::send_cmd(uint8_t cmd) { writeCommand(cmd); }
+void CO5300Driver::send_cmd_byte(uint8_t cmd, uint8_t data) { writeC8D8(cmd, data); }
+void CO5300Driver::send_cmd_data(uint8_t cmd, const uint8_t *data, size_t len) {}
+void CO5300Driver::set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {}
+void CO5300Driver::write_pixels(const uint8_t *data, size_t len) {}
