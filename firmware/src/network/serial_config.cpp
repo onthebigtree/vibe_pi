@@ -4,6 +4,7 @@
 #include "config.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <lvgl.h>
 
 static char _ssid[64] = "";
 static char _pass[64] = "";
@@ -84,6 +85,70 @@ static void handle_cmd(JsonDocument &doc) {
                       s.device_name,
                       s.sleep_timeout_ms,
                       s.theme);
+    }
+    else if (strcmp(cmd, "ui_dump") == 0) {
+        // Dump current LVGL screen widget tree
+        lv_obj_t *scr = lv_screen_active();
+        if (!scr) { Serial.println("{\"ok\":false,\"error\":\"no screen\"}"); return; }
+
+        Serial.print("{\"ok\":true,\"screen\":{\"w\":");
+        Serial.print(lv_obj_get_width(scr));
+        Serial.print(",\"h\":");
+        Serial.print(lv_obj_get_height(scr));
+        Serial.print("},\"widgets\":[");
+
+        // Recursive lambda via function pointer
+        struct Dumper {
+            static void dump(lv_obj_t *obj, int depth) {
+                if (depth > 0) Serial.print(",");
+
+                int32_t x = lv_obj_get_x(obj);
+                int32_t y = lv_obj_get_y(obj);
+                int32_t w = lv_obj_get_width(obj);
+                int32_t h = lv_obj_get_height(obj);
+
+                // Detect type
+                const char *type = "obj";
+                if (lv_obj_check_type(obj, &lv_label_class)) type = "label";
+                else if (lv_obj_check_type(obj, &lv_button_class)) type = "btn";
+                else if (lv_obj_check_type(obj, &lv_arc_class)) type = "arc";
+                else if (lv_obj_check_type(obj, &lv_spinner_class)) type = "spinner";
+                else if (lv_obj_check_type(obj, &lv_bar_class)) type = "bar";
+
+                Serial.printf("{\"t\":\"%s\",\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld",
+                              type, x, y, w, h);
+
+                // Get text for labels
+                if (lv_obj_check_type(obj, &lv_label_class)) {
+                    const char *txt = lv_label_get_text(obj);
+                    if (txt) {
+                        Serial.print(",\"text\":\"");
+                        // Escape quotes in text
+                        for (const char *p = txt; *p; p++) {
+                            if (*p == '"') Serial.print("\\\"");
+                            else if (*p == '\n') Serial.print("\\n");
+                            else Serial.print(*p);
+                        }
+                        Serial.print("\"");
+                    }
+                }
+
+                Serial.print("}");
+
+                // Recurse children
+                uint32_t cnt = lv_obj_get_child_count(obj);
+                for (uint32_t i = 0; i < cnt; i++) {
+                    dump(lv_obj_get_child(obj, i), depth + 1);
+                }
+            }
+        };
+
+        uint32_t cnt = lv_obj_get_child_count(scr);
+        for (uint32_t i = 0; i < cnt; i++) {
+            if (i > 0) Serial.print(",");
+            Dumper::dump(lv_obj_get_child(scr, i), 0);
+        }
+        Serial.println("]}");
     }
     else {
         Serial.printf("{\"ok\":false,\"error\":\"unknown cmd: %s\"}\n", cmd);
