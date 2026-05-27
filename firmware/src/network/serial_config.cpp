@@ -10,6 +10,7 @@ static char _ssid[64] = "";
 static char _pass[64] = "";
 static bool _has_wifi = false;
 static bool _setup_done = false;
+static bool _authenticated = false; // serial session auth
 static String _buf;
 
 static void handle_cmd(JsonDocument &doc) {

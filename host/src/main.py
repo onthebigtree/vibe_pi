@@ -9,7 +9,8 @@ from pathlib import Path
 
 from .cli import build_parser, handle_devices, handle_ota, __version__
 from .config import AppConfig, init_config, load_config
-from .collectors import ClaudeCodeCollector, CodexCollector, GeminiCLICollector, SystemCollector
+from .collectors import (ClaudeCodeCollector, CodexCollector, GeminiCLICollector,
+                         CursorCollector, WindsurfCollector, SystemCollector)
 from .collectors.base import BaseCollector
 from .device_registry import DeviceRegistry
 from .pairing import PairingManager
@@ -29,6 +30,10 @@ def build_collectors(cfg: AppConfig) -> list[BaseCollector]:
         collectors.append(CodexCollector())
     if cfg.collectors.gemini_cli:
         collectors.append(GeminiCLICollector())
+    if cfg.collectors.cursor:
+        collectors.append(CursorCollector())
+    if cfg.collectors.windsurf:
+        collectors.append(WindsurfCollector())
     if cfg.collectors.system:
         collectors.append(SystemCollector())
     return collectors

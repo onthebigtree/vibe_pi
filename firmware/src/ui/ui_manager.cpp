@@ -1,9 +1,21 @@
 #include "ui_manager.h"
 #include "theme.h"
+#include "notification.h"
 #include "../display/display.h"
 #include "../system/i18n.h"
 #include "../system/settings_manager.h"
+#include "hal/board.h"
 #include "config.h"
+
+static void apply_round_clip(lv_obj_t *scr) {
+    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    if (scr_round()) {
+        lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_clip_corner(scr, true, 0);
+    }
+}
 
 // ── Screen objects ──
 static lv_obj_t *scr_boot = nullptr;
@@ -69,9 +81,7 @@ void ui_init() {
 
 static lv_obj_t *create_status_screen(const char *icon, const char *title, const char *subtitle) {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
-    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr);
 
     if (icon && strlen(icon) > 0) {
         lv_obj_t *ic = lv_label_create(scr);
@@ -103,9 +113,7 @@ static lv_obj_t *create_status_screen(const char *icon, const char *title, const
 
 void ui_show_boot() {
     scr_boot = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr_boot, CLR_BG, 0);
-    lv_obj_set_style_radius(scr_boot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr_boot, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr_boot);
 
     // Animated ring
     lv_obj_t *ring = lv_arc_create(scr_boot);
@@ -156,9 +164,7 @@ void ui_show_provision(const char *ap_ssid, const char *ap_ip) {
 
 void ui_show_connecting_wifi() {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
-    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr);
 
     lv_obj_t *spinner = lv_spinner_create(scr);
     lv_obj_set_size(spinner, 50, 50);
@@ -187,9 +193,7 @@ void ui_show_wifi_failed() {
 
 void ui_show_discovering() {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
-    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr);
 
     lv_obj_t *spinner = lv_spinner_create(scr);
     lv_obj_set_size(spinner, 50, 50);
@@ -210,9 +214,7 @@ void ui_show_discovering() {
 
 void ui_show_reconnecting() {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
-    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr);
 
     lv_obj_t *spinner = lv_spinner_create(scr);
     lv_obj_set_size(spinner, 50, 50);
@@ -250,9 +252,7 @@ void ui_show_dashboard() {
     }
 
     scr_dashboard = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr_dashboard, CLR_BG, 0);
-    lv_obj_set_style_radius(scr_dashboard, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr_dashboard, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr_dashboard);
 
     // Tileview for horizontal swipe between pages
     tv = lv_tileview_create(scr_dashboard);
@@ -610,9 +610,7 @@ bool ui_is_sleeping() { return sleeping; }
 
 void ui_show_pairing(const char *code) {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
-    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, i18n(S_PAIRING));
@@ -657,9 +655,7 @@ void ui_show_pairing(const char *code) {
 
 void ui_show_safe_mode() {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
-    lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    apply_round_clip(scr);
 
     lv_obj_t *icon = lv_label_create(scr);
     lv_label_set_text(icon, LV_SYMBOL_WARNING);

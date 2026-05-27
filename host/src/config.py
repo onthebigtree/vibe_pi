@@ -69,6 +69,8 @@ class CollectorFlags:
     claude_code: bool = True
     codex: bool = True
     gemini_cli: bool = True
+    cursor: bool = True
+    windsurf: bool = True
     system: bool = True
 
 

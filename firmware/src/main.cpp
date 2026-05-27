@@ -15,6 +15,7 @@
 #include "system/watchdog.h"
 #include "ui/ui_manager.h"
 #include "ui/oobe_flow.h"
+#include "ui/notification.h"
 #include "network/serial_config.h"
 
 // ── Application State Machine ──
@@ -122,6 +123,7 @@ void loop() {
     lv_timer_handler();
     handle_button();
     serial_config_loop();
+    notif_loop();
 
     switch (appState) {
 
