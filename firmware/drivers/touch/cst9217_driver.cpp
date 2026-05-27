@@ -73,8 +73,11 @@ TouchPoint CST9217Driver::read() {
     uint16_t y = ((uint16_t)buf[2] << 4) | (buf[3] & 0x0F);
 
     tp.pressed = true;
-    tp.x = (x < _w) ? x : _w - 1;
-    tp.y = (y < _h) ? y : _h - 1;
+    // Mirror XY as per Waveshare official: touch.setMirrorXY(true, true)
+    x = (_w > x) ? (_w - 1 - x) : 0;
+    y = (_h > y) ? (_h - 1 - y) : 0;
+    tp.x = x;
+    tp.y = y;
 
     return tp;
 }
