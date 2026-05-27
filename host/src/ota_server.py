@@ -23,6 +23,7 @@ class FirmwareRelease:
     changelog_zh: str
     channel: str = "stable"
     force: bool = False
+    signature: str = ""
 
 
 class OTAManager:

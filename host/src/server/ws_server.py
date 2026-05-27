@@ -62,10 +62,18 @@ class StatusServer:
             for d in self.connections.values() if d.device_id
         ]
 
-    async def start(self):
+    async def start(self, ssl_cert: str = "", ssl_key: str = ""):
+        ssl_ctx = None
+        if ssl_cert and ssl_key:
+            import ssl
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(ssl_cert, ssl_key)
+            logger.info("WSS: TLS enabled")
+
         self._server = await websockets.serve(
             self._handler, self.host, self.port,
             ping_interval=20, ping_timeout=10,
+            ssl=ssl_ctx,
         )
         logger.info(f"WebSocket server on ws://{self.host}:{self.port}")
 

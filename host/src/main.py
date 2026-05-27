@@ -94,7 +94,7 @@ async def run(cfg: AppConfig):
     dashboard = WebDashboard(ws_port=cfg.server.port)
     ota = OTAManager()
 
-    await server.start()
+    await server.start(ssl_cert=cfg.server.ssl_cert, ssl_key=cfg.server.ssl_key)
     if mdns:
         await mdns.start()
     await dashboard.start()

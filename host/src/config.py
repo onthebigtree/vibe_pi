@@ -57,6 +57,8 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8765
     mdns: bool = True
+    ssl_cert: str = ""
+    ssl_key: str = ""
 
 
 @dataclass
