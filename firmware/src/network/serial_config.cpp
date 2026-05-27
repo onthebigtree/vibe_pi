@@ -34,12 +34,27 @@ static void handle_cmd(JsonDocument &doc) {
         Serial.println("]}");
         WiFi.scanDelete();
     }
+    else if (strcmp(cmd, "set_host") == 0) {
+        const char *host = doc["host"];
+        int port = doc["port"] | 8765;
+        if (host && strlen(host) > 0) {
+            strlcpy(settings_get().host_addr, host, sizeof(settings_get().host_addr));
+            settings_get().host_port = port;
+            settings_save();
+            Serial.printf("{\"ok\":true,\"host\":\"%s\",\"port\":%d}\n", host, port);
+        }
+    }
     else if (strcmp(cmd, "wifi") == 0) {
         const char *ssid = doc["ssid"];
         const char *pass = doc["pass"] | "";
+        const char *host = doc["host"] | "";
         if (ssid && strlen(ssid) > 0) {
             strlcpy(_ssid, ssid, sizeof(_ssid));
             strlcpy(_pass, pass, sizeof(_pass));
+            if (strlen(host) > 0) {
+                strlcpy(settings_get().host_addr, host, sizeof(settings_get().host_addr));
+                settings_get().host_port = doc["port"] | 8765;
+            }
             _has_wifi = true;
             Serial.printf("{\"ok\":true,\"ssid\":\"%s\"}\n", _ssid);
         } else {

@@ -20,25 +20,30 @@ void settings_init() {
     i18n_init(cfg.language);
 }
 
+static String safe_get_string(Preferences &p, const char *key, const char *def) {
+    if (p.isKey(key)) return p.getString(key, def);
+    return String(def);
+}
+
 void settings_load() {
     prefs.begin(NVS_NAMESPACE, true);
 
     cfg.brightness       = prefs.getUChar(NVS_BRIGHTNESS, 80);
     cfg.sleep_timeout_ms = prefs.getUInt(NVS_SLEEP_TIMEOUT, 60000);
-    strlcpy(cfg.theme, prefs.getString(NVS_THEME, "minimal").c_str(), sizeof(cfg.theme));
+    strlcpy(cfg.theme, safe_get_string(prefs, NVS_THEME, "minimal").c_str(), sizeof(cfg.theme));
 
-    strlcpy(cfg.wifi_ssid, prefs.getString(NVS_WIFI_SSID, "").c_str(), sizeof(cfg.wifi_ssid));
-    strlcpy(cfg.wifi_pass, prefs.getString(NVS_WIFI_PASS, "").c_str(), sizeof(cfg.wifi_pass));
-    strlcpy(cfg.host_addr, prefs.getString(NVS_HOST_ADDR, "").c_str(), sizeof(cfg.host_addr));
+    strlcpy(cfg.wifi_ssid, safe_get_string(prefs, NVS_WIFI_SSID, "").c_str(), sizeof(cfg.wifi_ssid));
+    strlcpy(cfg.wifi_pass, safe_get_string(prefs, NVS_WIFI_PASS, "").c_str(), sizeof(cfg.wifi_pass));
+    strlcpy(cfg.host_addr, safe_get_string(prefs, NVS_HOST_ADDR, "").c_str(), sizeof(cfg.host_addr));
     cfg.host_port = prefs.getUShort(NVS_HOST_PORT, 8765);
 
     cfg.paired = prefs.getBool(NVS_PAIRED, false);
-    strlcpy(cfg.pair_token, prefs.getString(NVS_PAIR_TOKEN, "").c_str(), sizeof(cfg.pair_token));
-    strlcpy(cfg.host_name, prefs.getString(NVS_HOST_NAME, "").c_str(), sizeof(cfg.host_name));
+    strlcpy(cfg.pair_token, safe_get_string(prefs, NVS_PAIR_TOKEN, "").c_str(), sizeof(cfg.pair_token));
+    strlcpy(cfg.host_name, safe_get_string(prefs, NVS_HOST_NAME, "").c_str(), sizeof(cfg.host_name));
 
     cfg.language = (Lang)prefs.getUChar(NVS_LANGUAGE, (uint8_t)Lang::ZH);
-    strlcpy(cfg.device_name, prefs.getString(NVS_DEVICE_NAME, "Vibe Pi").c_str(), sizeof(cfg.device_name));
-    strlcpy(cfg.timezone, prefs.getString(NVS_TIMEZONE, "Asia/Shanghai").c_str(), sizeof(cfg.timezone));
+    strlcpy(cfg.device_name, safe_get_string(prefs, NVS_DEVICE_NAME, "Vibe Pi").c_str(), sizeof(cfg.device_name));
+    strlcpy(cfg.timezone, safe_get_string(prefs, NVS_TIMEZONE, "Asia/Shanghai").c_str(), sizeof(cfg.timezone));
     strlcpy(cfg.ota_channel, prefs.getString(NVS_OTA_CHANNEL, "stable").c_str(), sizeof(cfg.ota_channel));
 
     cfg.alert_usage_pct  = prefs.getUChar(NVS_ALERT_USAGE, 80);

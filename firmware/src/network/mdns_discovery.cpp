@@ -21,10 +21,28 @@ HostInfo mdns_discover_host() {
         return info;
     }
 
-    info.host = MDNS.IP(0).toString();
-    info.port = MDNS.port(0);
-    info.found = true;
+    for (int i = 0; i < n; i++) {
+        IPAddress ip = MDNS.IP(i);
+        uint16_t port = MDNS.port(i);
+        String hostname = MDNS.hostname(i);
 
-    Serial.printf("[mDNS] Found host: %s:%d\n", info.host.c_str(), info.port);
+        Serial.printf("[mDNS] Service %d: %s (%s:%d)\n", i, hostname.c_str(), ip.toString().c_str(), port);
+
+        // Skip invalid addresses
+        if (ip == IPAddress(0, 0, 0, 0) || ip == IPAddress(127, 0, 0, 1)) {
+            continue;
+        }
+
+        info.host = ip.toString();
+        info.port = port;
+        info.found = true;
+        Serial.printf("[mDNS] Using host: %s:%d\n", info.host.c_str(), info.port);
+        break;
+    }
+
+    if (!info.found) {
+        Serial.println("[mDNS] No valid host IP found");
+    }
+
     return info;
 }

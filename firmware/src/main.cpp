@@ -15,6 +15,7 @@
 #include "system/watchdog.h"
 #include "ui/ui_manager.h"
 #include "ui/oobe_flow.h"
+#include "network/serial_config.h"
 
 // ── Application State Machine ──
 enum class AppState {
@@ -101,6 +102,7 @@ void setup() {
     settings_init();
     health_init();
     ota_init();
+    serial_config_init();
 
     display_init();
     ui_init();
@@ -119,6 +121,7 @@ void loop() {
     display_update_touch();
     lv_timer_handler();
     handle_button();
+    serial_config_loop();
 
     switch (appState) {
 

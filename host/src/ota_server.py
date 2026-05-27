@@ -106,6 +106,7 @@ class OTAManager:
             logger.info("OTA file server disabled (install aiohttp)")
             return
 
+        self.firmware_dir.mkdir(parents=True, exist_ok=True)
         app = web.Application()
         app.router.add_static("/firmware", str(self.firmware_dir))
 
