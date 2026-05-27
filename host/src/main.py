@@ -36,6 +36,20 @@ def build_collectors(cfg: AppConfig) -> list[BaseCollector]:
         collectors.append(WindsurfCollector())
     if cfg.collectors.system:
         collectors.append(SystemCollector())
+
+    # Load third-party collectors via entry_points
+    try:
+        from importlib.metadata import entry_points
+        eps = entry_points(group="vibepi.collectors")
+        for ep in eps:
+            try:
+                cls = ep.load()
+                collectors.append(cls())
+                logger.info(f"Plugin collector loaded: {ep.name}")
+            except Exception as e:
+                logger.warning(f"Failed to load plugin {ep.name}: {e}")
+    except Exception:
+        pass
     return collectors
 
 

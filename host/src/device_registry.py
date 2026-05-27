@@ -21,6 +21,7 @@ class DeviceRecord:
     name: str = ""
     paired: bool = False
     pair_token: str = ""
+    pair_token_expires: float = 0.0
     paired_at: float = 0.0
     last_seen: float = 0.0
     settings: dict = field(default_factory=dict)
@@ -74,12 +75,13 @@ class DeviceRegistry:
         self._save()
         return d
 
-    def pair_device(self, device_id: str, token: str) -> bool:
+    def pair_device(self, device_id: str, token: str, ttl_days: int = 30) -> bool:
         d = self._devices.get(device_id)
         if not d:
             return False
         d.paired = True
         d.pair_token = token
+        d.pair_token_expires = time.time() + (ttl_days * 86400)
         d.paired_at = time.time()
         self._save()
         logger.info(f"Device paired: {device_id}")
@@ -118,6 +120,11 @@ class DeviceRegistry:
     def verify_token(self, device_id: str, token: str) -> bool:
         d = self._devices.get(device_id)
         if not d or not d.paired:
+            return False
+        if d.pair_token_expires > 0 and time.time() > d.pair_token_expires:
+            logger.info(f"Token expired for {device_id}")
+            d.paired = False
+            self._save()
             return False
         return d.pair_token == token
 

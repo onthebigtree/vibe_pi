@@ -2,6 +2,7 @@
 #include "config.h"
 #include "settings_manager.h"
 #include "../ui/ui_manager.h"
+#include "watchdog.h"
 #include "hal/board.h"
 #include <Wire.h>
 #include <esp_wifi.h>
@@ -111,6 +112,14 @@ void power_loop() {
                 power_register_activity();
             }
             break;
+    }
+
+    // Memory pressure check — log warning when heap is low
+    static unsigned long lastMemWarn = 0;
+    if (mem_is_low() && millis() - lastMemWarn > 10000) {
+        lastMemWarn = millis();
+        mem_log_stats();
+        Serial.println("[Power] WARNING: Low memory");
     }
 }
 

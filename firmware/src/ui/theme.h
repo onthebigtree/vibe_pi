@@ -51,4 +51,10 @@ LV_FONT_DECLARE(font_zh_28);
 #define ARC_GAUGE_SIZE   (pct_w(30))
 
 void theme_init();
+void theme_set_dark(bool dark);
+bool theme_is_dark();
+lv_color_t theme_bg();
+lv_color_t theme_text();
+lv_color_t theme_text_secondary();
+lv_color_t theme_surface();
 lv_color_t theme_tool_color(const char *tool_name);
