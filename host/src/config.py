@@ -120,13 +120,14 @@ def init_config(path: Path | None = None) -> Path:
 
 
 def _find_config_path() -> Path | None:
+    env_path = os.environ.get("VIBEPI_CONFIG", "")
     candidates = [
-        Path(os.environ.get("VIBEPI_CONFIG", "")),
+        Path(env_path) if env_path else None,
         Path.cwd() / "vibe-pi.toml",
         DEFAULT_CONFIG_PATH,
     ]
     for p in candidates:
-        if p and p.exists():
+        if p and p.is_file():
             return p
     return None
 

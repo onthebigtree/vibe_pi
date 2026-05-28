@@ -17,7 +17,8 @@ from .pairing import PairingManager
 from .ota_server import OTAManager
 from .server.ws_server import StatusServer
 from .server.mdns import MDNSAdvertiser
-from .server.web_dashboard import WebDashboard
+from .server.web_dashboard import DASHBOARD_HTML
+from .serial_transport import SerialTransport
 
 logger = logging.getLogger("vibe-pi")
 
@@ -37,7 +38,6 @@ def build_collectors(cfg: AppConfig) -> list[BaseCollector]:
     if cfg.collectors.system:
         collectors.append(SystemCollector())
 
-    # Load third-party collectors via entry_points
     try:
         from importlib.metadata import entry_points
         eps = entry_points(group="vibepi.collectors")
@@ -77,6 +77,7 @@ async def run(cfg: AppConfig):
 
     registry = DeviceRegistry()
     pairing_mgr = PairingManager(registry)
+    ota = OTAManager()
 
     server = StatusServer(
         host=cfg.server.host, port=cfg.server.port,
@@ -89,20 +90,57 @@ async def run(cfg: AppConfig):
         "theme": cfg.display.theme,
         "active_pages": cfg.display.pages,
     })
+    server.set_dashboard_html(DASHBOARD_HTML)
+    server.set_ota_dir(ota.firmware_dir)
 
     mdns = MDNSAdvertiser(port=cfg.server.port, host_version=__version__) if cfg.server.mdns else None
-    dashboard = WebDashboard(ws_port=cfg.server.port)
-    ota = OTAManager()
+
+    # Serial transport (USB)
+    serial_tx = SerialTransport()
+    serial_device_info: dict = {}
+
+    async def on_serial_register(payload: dict):
+        nonlocal serial_device_info
+        serial_device_info = payload
+        device_id = payload.get("device_id", "")
+        registry.register_device(
+            device_id,
+            payload.get("firmware_version", ""),
+            payload.get("hardware", ""),
+            payload.get("mac", ""),
+        )
+        from .protocol import make_registered
+        is_paired = registry.verify_token(device_id, payload.get("paired_token", ""))
+        record = registry.get(device_id)
+        config = record.settings if record and record.settings else server._default_config
+        await serial_tx.send_json(make_registered(device_id, is_paired, config))
+        logger.info(f"Serial device registered: {device_id}")
+
+    async def on_serial_message(data: dict):
+        from .protocol import MsgType, parse_msg, make_pong, make_settings_ack
+        msg_type, payload = parse_msg(data)
+        if msg_type == MsgType.PING:
+            await serial_tx.send_json(make_pong())
+        elif msg_type == MsgType.SETTINGS_UPDATE:
+            if serial_tx.device_id:
+                registry.update_settings(serial_tx.device_id, payload)
+            await serial_tx.send_json(make_settings_ack())
+        elif msg_type == MsgType.HEALTH_REPORT:
+            logger.debug(f"Serial health: heap={payload.get('free_heap')}")
+
+    serial_tx.set_register_handler(on_serial_register)
+    serial_tx.set_message_handler(on_serial_message)
 
     await server.start(ssl_cert=cfg.server.ssl_cert, ssl_key=cfg.server.ssl_key)
     if mdns:
         await mdns.start()
-    await dashboard.start()
-    await ota.start()
+
+    serial_ok = await serial_tx.start()
 
     logger.info(f"Vibe Pi Host Agent v{__version__} (protocol v2)")
     logger.info(f"Collectors: {', '.join(c.display_name for c in collectors)}")
     logger.info(f"Polling: {cfg.polling.interval}s")
+    logger.info(f"Transports: WS={True}, Serial={serial_ok}")
     logger.info(f"Registered devices: {len(registry.get_all())}")
     logger.info("Waiting for device connections...")
 
@@ -112,7 +150,6 @@ async def run(cfg: AppConfig):
             system_data: dict = {}
             active_tool = "idle"
 
-            # Concurrent collection — all collectors run in parallel
             async def safe_collect(c):
                 try:
                     return c.name, await asyncio.wait_for(c.collect(), timeout=5.0)
@@ -135,16 +172,21 @@ async def run(cfg: AppConfig):
                     if data.get("status") == "active":
                         active_tool = name
 
+            # Broadcast to WS devices
             if server.device_count > 0:
                 await server.broadcast_status(tools_data, system_data, active_tool)
+
+            # Send to serial device
+            if serial_tx.connected and serial_tx.device_id:
+                from .protocol import make_status
+                await serial_tx.send_json(make_status(tools_data, system_data, active_tool))
 
             await asyncio.sleep(cfg.polling.interval)
 
     except asyncio.CancelledError:
         pass
     finally:
-        await ota.stop()
-        await dashboard.stop()
+        await serial_tx.stop()
         if mdns:
             await mdns.stop()
         await server.stop()
@@ -170,12 +212,13 @@ def main():
         return
 
     if command == "pair":
-        # Interactive pairing requires running server — print instructions
         print(f"To confirm pairing for {args.device_id} with code {args.code}:")
-        print("The host agent must be running. Pairing confirmation happens via the web dashboard.")
+        print("The host agent must be running. Use the web dashboard or API.")
+        print(f"  curl -X POST http://localhost:8765/api/pairing/confirm \\")
+        print(f"    -H 'Content-Type: application/json' \\")
+        print(f"    -d '{{\"device_id\":\"{args.device_id}\",\"code\":\"{args.code}\"}}'")
         return
 
-    # Default: run
     cfg = load_config(getattr(args, "config", None))
     if getattr(args, "debug", False):
         cfg.logging.level = "DEBUG"

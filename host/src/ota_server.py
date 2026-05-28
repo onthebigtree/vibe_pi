@@ -1,16 +1,18 @@
-"""OTA firmware file server and version management."""
+"""OTA firmware file management and version tracking.
+
+Files are served by the unified aiohttp server at /firmware/ path.
+This module handles publishing, manifest, and version queries only.
+"""
 
 import hashlib
 import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("vibe-pi.ota")
 
 OTA_DIR = Path.home() / ".config" / "vibe-pi" / "firmware"
-OTA_PORT = 8767
 
 
 @dataclass
@@ -27,11 +29,9 @@ class FirmwareRelease:
 
 
 class OTAManager:
-    def __init__(self, firmware_dir: Path | None = None, port: int = OTA_PORT):
+    def __init__(self, firmware_dir: Path | None = None):
         self.firmware_dir = firmware_dir or OTA_DIR
-        self.port = port
         self._releases: dict[str, FirmwareRelease] = {}
-        self._runner = None
         self._load_releases()
 
     def _load_releases(self):
@@ -50,6 +50,9 @@ class OTAManager:
         if not candidates:
             return None
         return max(candidates, key=lambda r: r.version)
+
+    def get_all(self) -> list[FirmwareRelease]:
+        return list(self._releases.values())
 
     def publish(self, firmware_path: Path, version: str, changelog: str = "",
                 changelog_zh: str = "", channel: str = "stable", force: bool = False) -> FirmwareRelease:
@@ -97,27 +100,5 @@ class OTAManager:
         }
         manifest.write_text(json.dumps(data, indent=2))
 
-    def get_download_url(self, release: FirmwareRelease, host_ip: str) -> str:
-        return f"http://{host_ip}:{self.port}/firmware/{release.filename}"
-
-    async def start(self):
-        try:
-            from aiohttp import web
-        except ImportError:
-            logger.info("OTA file server disabled (install aiohttp)")
-            return
-
-        self.firmware_dir.mkdir(parents=True, exist_ok=True)
-        app = web.Application()
-        app.router.add_static("/firmware", str(self.firmware_dir))
-
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", self.port)
-        await site.start()
-        self._runner = runner
-        logger.info(f"OTA file server on port {self.port}")
-
-    async def stop(self):
-        if self._runner:
-            await self._runner.cleanup()
+    def get_download_url(self, release: FirmwareRelease, host_ip: str, port: int = 8765) -> str:
+        return f"http://{host_ip}:{port}/firmware/{release.filename}"

@@ -50,36 +50,25 @@ class MDNSAdvertiser:
 
 
 def _get_all_lan_ips() -> list[str]:
+    ips = []
     try:
-        import netifaces
-        ips = []
-        for iface in netifaces.interfaces():
-            addrs = netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])
-            for a in addrs:
-                ip = a.get("addr", "")
-                if ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
-                    ips.append(ip)
-        return ips if ips else ["127.0.0.1"]
-    except Exception:
-        return [_get_local_ip_fallback()]
-
-
-def _get_local_ip_fallback() -> str:
-    import netifaces
-    try:
-        candidates = []
-        for iface in netifaces.interfaces():
-            addrs = netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])
-            for a in addrs:
-                ip = a.get("addr", "")
-                if ip.startswith("192.168.") or ip.startswith("10."):
-                    candidates.append(ip)
-        # Prefer common home LAN subnets: .1.x, .0.x, .10.x over .194.x etc.
-        candidates.sort(key=lambda ip: int(ip.split(".")[2]))
-        if candidates:
-            return candidates[0]
-    except Exception:
+        import ifaddr
+        for adapter in ifaddr.get_adapters():
+            for ip_info in adapter.ips:
+                if isinstance(ip_info.ip, str):
+                    ip = ip_info.ip
+                    if ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
+                        ips.append(ip)
+    except ImportError:
         pass
+
+    if not ips:
+        ips.append(_get_local_ip_udp())
+
+    return ips
+
+
+def _get_local_ip_udp() -> str:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))

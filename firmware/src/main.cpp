@@ -176,6 +176,14 @@ void loop() {
 
     // ── CONNECTING WIFI ──
     case AppState::CONNECTING_WIFI: {
+        // Serial transport can work without WiFi
+        if (serial_transport_is_active()) {
+            Serial.println("[App] Serial active — running without WiFi");
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+            break;
+        }
+
         Serial.println("[App] CONNECTING_WIFI...");
         provision_init();
         if (provision_is_configured()) {
@@ -185,8 +193,15 @@ void loop() {
                 set_state(AppState::DISCOVERING);
                 ui_show_discovering();
             } else {
-                set_state(AppState::WIFI_FAILED);
-                ui_show_wifi_failed();
+                // WiFi failed but serial might be available
+                if (serial_transport_is_active()) {
+                    Serial.println("[App] WiFi failed, using serial transport");
+                    set_state(AppState::RUNNING);
+                    ui_show_dashboard();
+                } else {
+                    set_state(AppState::WIFI_FAILED);
+                    ui_show_wifi_failed();
+                }
             }
         } else {
             // No WiFi config — go to OOBE
@@ -207,6 +222,14 @@ void loop() {
 
     // ── DISCOVERING HOST ──
     case AppState::DISCOVERING: {
+        // Skip WS discovery if serial transport is active
+        if (serial_transport_is_active()) {
+            Serial.println("[App] Serial transport active — skipping WS discovery");
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+            break;
+        }
+
         DeviceSettings &s = settings_get();
 
         static int discoverAttempt = 0;
@@ -251,10 +274,14 @@ void loop() {
     // ── CONNECTING WS ──
     case AppState::CONNECTING_WS:
         ws_client_loop();
-        if (ws_client_is_connected()) {
+        if (serial_transport_is_active()) {
+            Serial.println("[App] Serial transport active — RUNNING");
             set_state(AppState::RUNNING);
             ui_show_dashboard();
-            Serial.println("[App] Connected — RUNNING");
+        } else if (ws_client_is_connected()) {
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+            Serial.println("[App] WS connected — RUNNING");
         } else if (state_elapsed() > 15000) {
             set_state(AppState::DISCOVERING);
             hostInfo.found = false;
@@ -278,13 +305,21 @@ void loop() {
 
     // ── RUNNING ──
     case AppState::RUNNING:
-        ws_client_loop();
-        power_loop();
-
-        if (!ws_client_is_connected()) {
-            set_state(AppState::RECONNECTING);
-            ui_show_reconnecting();
-            break;
+        if (serial_transport_is_active()) {
+            // Serial transport mode — no WS needed
+            power_loop();
+            if (millis() - serial_transport_last_status() > STATUS_STALE_TIMEOUT_MS * 2
+                && serial_transport_last_status() > 0) {
+                // Serial link stale
+            }
+        } else {
+            ws_client_loop();
+            power_loop();
+            if (!ws_client_is_connected()) {
+                set_state(AppState::RECONNECTING);
+                ui_show_reconnecting();
+                break;
+            }
         }
 
         // Periodic health report
@@ -292,7 +327,13 @@ void loop() {
             lastHealthReport = millis();
             JsonDocument doc;
             health_build_report(doc, deviceId);
-            ws_client_send_json(doc);
+            if (serial_transport_is_active()) {
+                String json;
+                serializeJson(doc, json);
+                serial_transport_send(json.c_str());
+            } else {
+                ws_client_send_json(doc);
+            }
         }
         break;
 
@@ -301,7 +342,12 @@ void loop() {
         ws_client_loop();
         power_loop();
 
-        if (ws_client_is_connected()) {
+        // Serial transport can activate at any time
+        if (serial_transport_is_active()) {
+            Serial.println("[App] Serial transport active — switching to RUNNING");
+            set_state(AppState::RUNNING);
+            ui_show_dashboard();
+        } else if (ws_client_is_connected()) {
             set_state(AppState::RUNNING);
             ui_show_dashboard();
         } else if (state_elapsed() > 30000) {
@@ -317,6 +363,13 @@ void loop() {
     }
 
     lv_timer_handler();
+
+    // USB CDC keepalive — macOS driver stops polling after silence
+    static unsigned long lastSerialKeepalive = 0;
+    if (millis() - lastSerialKeepalive > 2000) {
+        lastSerialKeepalive = millis();
+        Serial.println();  // empty line keeps USB CDC active
+    }
 
     delay(5);
 }

@@ -1,4 +1,8 @@
-"""Protocol v2 WebSocket server with pairing, OTA, settings sync, device management."""
+"""Unified aiohttp server: WebSocket protocol v2 + web dashboard + OTA file serving.
+
+Replaces the previous websockets-based server. Uses aiohttp which handles the
+ESP32 WebSocketsClient 'arduino' subprotocol correctly.
+"""
 
 import asyncio
 import json
@@ -6,13 +10,13 @@ import logging
 import socket
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
-import websockets
-from websockets.asyncio.server import Server, ServerConnection
+from aiohttp import web, WSMsgType
 
 from ..protocol import (MsgType, make_hello, make_pong, make_registered,
                         make_status, make_pair_confirm, make_pair_reject,
-                        make_settings_sync, make_settings_ack, make_ota_available,
+                        make_settings_sync, make_settings_ack,
                         make_ota_start, make_reset_command, make_device_rename,
                         make_unpair, parse_msg)
 from ..device_registry import DeviceRegistry
@@ -25,7 +29,7 @@ HOST_VERSION = "0.2.0"
 
 @dataclass
 class ConnectedDevice:
-    websocket: ServerConnection
+    ws: web.WebSocketResponse
     device_id: str = ""
     firmware_version: str = ""
     hardware: str = ""
@@ -44,12 +48,20 @@ class StatusServer:
         self.collector_names = collector_names or []
         self.registry = registry or DeviceRegistry()
         self.pairing_mgr = pairing_mgr or PairingManager(self.registry)
-        self.connections: dict[ServerConnection, ConnectedDevice] = {}
-        self._server: Server | None = None
+        self.connections: dict[web.WebSocketResponse, ConnectedDevice] = {}
+        self._runner: web.AppRunner | None = None
         self._default_config: dict = {}
+        self._dashboard_html: str = ""
+        self._ota_dir: Path | None = None
 
     def set_default_config(self, config: dict):
         self._default_config = config
+
+    def set_dashboard_html(self, html: str):
+        self._dashboard_html = html
+
+    def set_ota_dir(self, path: Path):
+        self._ota_dir = path
 
     @property
     def device_count(self) -> int:
@@ -70,36 +82,60 @@ class StatusServer:
             ssl_ctx.load_cert_chain(ssl_cert, ssl_key)
             logger.info("WSS: TLS enabled")
 
-        self._server = await websockets.serve(
-            self._handler, self.host, self.port,
-            ping_interval=20, ping_timeout=10,
-            ssl=ssl_ctx,
-        )
-        logger.info(f"WebSocket server on ws://{self.host}:{self.port}")
+        app = web.Application()
+        app.router.add_get("/ws", self._ws_handler)
+        app.router.add_get("/", self._dashboard_handler)
+        app.router.add_get("/api/health", self._health_handler)
+        app.router.add_get("/api/devices", self._devices_handler)
+        app.router.add_get("/api/status", self._status_api_handler)
+        app.router.add_get("/api/pairing", self._pairing_handler)
+        app.router.add_post("/api/pairing/confirm", self._pairing_confirm_handler)
+        app.router.add_post("/api/devices/{device_id}/settings", self._settings_push_handler)
+        app.router.add_post("/api/devices/{device_id}/reset", self._reset_handler)
+        app.router.add_post("/api/devices/{device_id}/rename", self._rename_handler)
+        app.router.add_post("/api/devices/{device_id}/ota", self._ota_push_handler)
 
-    async def _handler(self, ws: ServerConnection):
-        dev = ConnectedDevice(websocket=ws)
+        if self._ota_dir:
+            self._ota_dir.mkdir(parents=True, exist_ok=True)
+            app.router.add_static("/firmware", str(self._ota_dir))
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, self.host, self.port, ssl_context=ssl_ctx)
+        await site.start()
+        self._runner = runner
+
+        scheme = "wss" if ssl_ctx else "ws"
+        logger.info(f"Server on {scheme}://{self.host}:{self.port} "
+                     f"(WS: /ws, Dashboard: /, API: /api/, OTA: /firmware/)")
+
+    # ── WebSocket handler ──
+
+    async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse(protocols=["arduino"], heartbeat=20.0)
+        await ws.prepare(request)
+
+        dev = ConnectedDevice(ws=ws)
         self.connections[ws] = dev
-        remote = ws.remote_address
+        remote = request.remote
         logger.info(f"Device connected from {remote}")
 
         hello = make_hello(HOST_VERSION, socket.gethostname(), self.collector_names)
-        try:
-            await ws.send(json.dumps(hello))
-        except websockets.ConnectionClosed:
-            self.connections.pop(ws, None)
-            return
+        await ws.send_json(hello)
 
         try:
-            async for raw in ws:
-                await self._handle_message(dev, raw)
-        except websockets.ConnectionClosed:
-            pass
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    await self._handle_message(dev, msg.data)
+                elif msg.type == WSMsgType.ERROR:
+                    logger.warning(f"WS error from {dev.device_id}: {ws.exception()}")
         finally:
             self.connections.pop(ws, None)
             logger.info(f"Device disconnected: {dev.device_id or remote}")
 
-    async def _handle_message(self, dev: ConnectedDevice, raw: str | bytes):
+        return ws
+
+    async def _handle_message(self, dev: ConnectedDevice, raw: str):
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
@@ -126,7 +162,7 @@ class StatusServer:
                 config = record.settings if record and record.settings else self._default_config
 
                 ack = make_registered(dev.device_id, is_paired, config)
-                await dev.websocket.send(json.dumps(ack))
+                await dev.ws.send_json(ack)
                 logger.info(f"Device registered: {dev.device_id} (paired={is_paired})")
 
             case MsgType.PAIR_REQUEST:
@@ -138,20 +174,19 @@ class StatusServer:
 
             case MsgType.PING:
                 dev.last_ping = time.time()
-                await dev.websocket.send(json.dumps(make_pong()))
+                await dev.ws.send_json(make_pong())
 
             case MsgType.SETTINGS_UPDATE:
                 if dev.device_id:
                     self.registry.update_settings(dev.device_id, payload)
-                await dev.websocket.send(json.dumps(make_settings_ack()))
+                await dev.ws.send_json(make_settings_ack())
 
             case MsgType.HEALTH_REPORT:
                 logger.debug(f"Health from {dev.device_id}: heap={payload.get('free_heap')}, "
                             f"rssi={payload.get('wifi_rssi')}, crashes={payload.get('crash_count')}")
 
             case MsgType.OTA_PROGRESS:
-                pct = payload.get("progress_pct", 0)
-                logger.info(f"OTA progress {dev.device_id}: {pct}%")
+                logger.info(f"OTA progress {dev.device_id}: {payload.get('progress_pct', 0)}%")
 
             case MsgType.OTA_DONE:
                 logger.info(f"OTA complete for {dev.device_id}: success={payload.get('success')}")
@@ -159,17 +194,83 @@ class StatusServer:
             case MsgType.OTA_FAILED:
                 logger.warning(f"OTA failed for {dev.device_id}: {payload.get('error')}")
 
-    # ── Outbound ──
+    # ── Dashboard & API handlers ──
+
+    async def _dashboard_handler(self, request: web.Request):
+        if not self._dashboard_html:
+            return web.Response(text="<h1>Vibe Pi</h1><p>Dashboard not configured</p>",
+                                content_type="text/html")
+        return web.Response(text=self._dashboard_html, content_type="text/html")
+
+    async def _health_handler(self, request: web.Request):
+        return web.json_response({"status": "ok", "version": HOST_VERSION})
+
+    async def _devices_handler(self, request: web.Request):
+        connected = self.get_connected_devices()
+        registered = [
+            {"device_id": d.device_id, "name": d.name, "paired": d.paired,
+             "firmware_version": d.firmware_version, "hardware": d.hardware,
+             "last_seen": d.last_seen}
+            for d in self.registry.get_all()
+        ]
+        return web.json_response({"connected": connected, "registered": registered})
+
+    async def _status_api_handler(self, request: web.Request):
+        return web.json_response({
+            "connected_devices": self.device_count,
+            "registered_devices": len(self.registry.get_all()),
+        })
+
+    async def _pairing_handler(self, request: web.Request):
+        pending = self.pairing_mgr.get_pending()
+        return web.json_response([
+            {"device_id": p.device_id, "pair_code": p.pair_code,
+             "device_name": p.device_name, "timestamp": p.timestamp}
+            for p in pending
+        ])
+
+    async def _pairing_confirm_handler(self, request: web.Request):
+        body = await request.json()
+        device_id = body.get("device_id", "")
+        code = body.get("code", "")
+        ok = await self.confirm_pair(device_id, code)
+        return web.json_response({"ok": ok})
+
+    async def _settings_push_handler(self, request: web.Request):
+        device_id = request.match_info["device_id"]
+        settings = await request.json()
+        ok = await self.sync_settings(device_id, settings)
+        return web.json_response({"ok": ok})
+
+    async def _reset_handler(self, request: web.Request):
+        device_id = request.match_info["device_id"]
+        body = await request.json()
+        ok = await self.send_reset(device_id, body.get("level", 0), body.get("reason", ""))
+        return web.json_response({"ok": ok})
+
+    async def _rename_handler(self, request: web.Request):
+        device_id = request.match_info["device_id"]
+        body = await request.json()
+        ok = await self.rename_device(device_id, body.get("name", ""))
+        return web.json_response({"ok": ok})
+
+    async def _ota_push_handler(self, request: web.Request):
+        device_id = request.match_info["device_id"]
+        body = await request.json()
+        ok = await self.send_to_device(device_id, body)
+        return web.json_response({"ok": ok})
+
+    # ── Outbound to devices ──
 
     async def broadcast_status(self, tools: dict, system: dict, active_tool: str):
         if not self.connections:
             return
-        msg = json.dumps(make_status(tools, system, active_tool), ensure_ascii=False)
+        msg = make_status(tools, system, active_tool)
         disconnected = []
-        for ws, dev in self.connections.items():
+        for ws, dev in list(self.connections.items()):
             try:
-                await ws.send(msg)
-            except websockets.ConnectionClosed:
+                await ws.send_json(msg)
+            except (ConnectionResetError, RuntimeError, Exception):
                 disconnected.append(ws)
         for ws in disconnected:
             self.connections.pop(ws, None)
@@ -178,9 +279,9 @@ class StatusServer:
         for ws, dev in self.connections.items():
             if dev.device_id == device_id:
                 try:
-                    await ws.send(json.dumps(msg))
+                    await ws.send_json(msg)
                     return True
-                except websockets.ConnectionClosed:
+                except Exception:
                     return False
         return False
 
@@ -212,6 +313,11 @@ class StatusServer:
         return await self.send_to_device(device_id, make_unpair(device_id))
 
     async def stop(self):
-        if self._server:
-            self._server.close()
-            await self._server.wait_closed()
+        for ws in list(self.connections.keys()):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        self.connections.clear()
+        if self._runner:
+            await self._runner.cleanup()

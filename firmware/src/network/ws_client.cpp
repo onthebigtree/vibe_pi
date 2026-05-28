@@ -147,7 +147,7 @@ void ws_client_init(const char *host, uint16_t port) {
     strlcpy(settings_get().host_addr, host, sizeof(settings_get().host_addr));
     settings_get().host_port = port;
 
-    ws.begin(host, port, "/");
+    ws.begin(host, port, "/ws");
     ws.onEvent(on_ws_event);
     ws.setReconnectInterval(0);
     Serial.printf("[WS] Connecting to %s:%d\n", host, port);

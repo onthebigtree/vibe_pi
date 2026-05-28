@@ -2,7 +2,10 @@
 #include "../system/settings_manager.h"
 #include "../system/health_manager.h"
 #include "../system/reset_manager.h"
+#include "../system/power_manager.h"
+#include "../system/ota_manager.h"
 #include "../system/i18n.h"
+#include "../ui/ui_manager.h"
 #include "config.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -51,6 +54,7 @@ static void handle_cmd(JsonDocument &doc) {
         const char *ssid = doc["ssid"];
         const char *pass = doc["pass"] | "";
         const char *host = doc["host"] | "";
+        bool persist = doc["persist"] | true;  // save to NVS by default
         if (ssid && strlen(ssid) > 0) {
             strlcpy(_ssid, ssid, sizeof(_ssid));
             strlcpy(_pass, pass, sizeof(_pass));
@@ -59,7 +63,13 @@ static void handle_cmd(JsonDocument &doc) {
                 settings_get().host_port = doc["port"] | 8765;
             }
             _has_wifi = true;
-            Serial.printf("{\"ok\":true,\"ssid\":\"%s\"}\n", _ssid);
+            if (persist) {
+                settings_save_wifi(ssid, pass);
+                settings_save();
+                Serial.printf("{\"ok\":true,\"ssid\":\"%s\",\"saved\":true,\"reboot_required\":true}\n", _ssid);
+            } else {
+                Serial.printf("{\"ok\":true,\"ssid\":\"%s\",\"saved\":false}\n", _ssid);
+            }
         } else {
             Serial.println("{\"ok\":false,\"error\":\"ssid required\"}");
         }
@@ -211,6 +221,10 @@ void serial_config_init() {
     _buf.reserve(256);
 }
 
+static void handle_protocol_msg(JsonDocument &doc);
+static bool _serial_transport_active = false;
+static unsigned long _last_serial_status = 0;
+
 void serial_config_loop() {
     while (Serial.available()) {
         char c = Serial.read();
@@ -218,7 +232,11 @@ void serial_config_loop() {
             if (_buf.length() > 0) {
                 JsonDocument doc;
                 if (!deserializeJson(doc, _buf)) {
-                    handle_cmd(doc);
+                    if (doc.containsKey("cmd")) {
+                        handle_cmd(doc);
+                    } else if (doc.containsKey("type")) {
+                        handle_protocol_msg(doc);
+                    }
                 }
                 _buf = "";
             }
@@ -227,6 +245,95 @@ void serial_config_loop() {
         }
     }
 }
+
+// ── Serial Transport (protocol v2 over USB) ──
+
+static void handle_protocol_msg(JsonDocument &doc) {
+    const char *msgType = doc["type"];
+    if (!msgType) return;
+    JsonObject p = doc["payload"];
+
+    if (strcmp(msgType, "hello") == 0) {
+        _serial_transport_active = true;
+        Serial.printf("[Serial] Host connected: v%s\n",
+                      p["host_version"].as<const char*>());
+        // Auto-register
+        serial_transport_send_register();
+    }
+    else if (strcmp(msgType, "registered") == 0) {
+        bool paired = p["paired"] | false;
+        Serial.printf("[Serial] Registered (paired=%d)\n", paired);
+        JsonObject config = p["config"];
+        if (!config.isNull()) {
+            settings_apply_sync(config);
+        }
+    }
+    else if (strcmp(msgType, "status") == 0) {
+        _last_serial_status = millis();
+        power_register_activity();
+        ui_update_status(p);
+    }
+    else if (strcmp(msgType, "pong") == 0) {
+        // heartbeat ack
+    }
+    else if (strcmp(msgType, "settings_sync") == 0) {
+        settings_apply_sync(p);
+        Serial.println("{\"v\":2,\"type\":\"settings_ack\",\"ts\":0,\"payload\":{\"ok\":true}}");
+    }
+    else if (strcmp(msgType, "ota_available") == 0) {
+        ota_on_available(p);
+    }
+    else if (strcmp(msgType, "ota_start") == 0) {
+        ota_on_start(p);
+    }
+    else if (strcmp(msgType, "reset_command") == 0) {
+        int level = p["level"] | 0;
+        reset_execute((ResetLevel)level, true);
+    }
+    else if (strcmp(msgType, "device_rename") == 0) {
+        const char *name = p["name"] | "";
+        if (strlen(name) > 0) {
+            strlcpy(settings_get().device_name, name, sizeof(settings_get().device_name));
+            settings_save();
+        }
+    }
+}
+
+void serial_transport_send_register() {
+    JsonDocument doc;
+    doc["v"] = PROTOCOL_VERSION;
+    doc["type"] = "register";
+    doc["ts"] = (unsigned long)(millis() / 1000);
+
+    JsonObject p = doc["payload"].to<JsonObject>();
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    char devId[20];
+    snprintf(devId, sizeof(devId), "vibepi-%02x%02x%02x", mac[3], mac[4], mac[5]);
+
+    DeviceSettings &s = settings_get();
+    p["device_id"] = devId;
+    p["firmware_version"] = FW_VERSION;
+    p["hardware"] = DEVICE_HARDWARE;
+    p["display"] = "466x466";
+    p["mac"] = macStr;
+    p["paired_token"] = s.pair_token;
+    p["transport"] = "serial";
+
+    String json;
+    serializeJson(doc, json);
+    Serial.println(json);
+}
+
+void serial_transport_send(const char *json) {
+    Serial.println(json);
+}
+
+bool serial_transport_is_active() { return _serial_transport_active; }
+unsigned long serial_transport_last_status() { return _last_serial_status; }
 
 bool serial_config_has_wifi()       { return _has_wifi; }
 const char *serial_config_get_ssid() { return _ssid; }

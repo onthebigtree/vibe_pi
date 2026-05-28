@@ -6,8 +6,9 @@ requires-python = ">=3.11"
 license = "MIT"
 
 dependencies = [
-    "websockets>=14.0",
+    "aiohttp>=3.10",
     "psutil>=6.0",
+    "pyserial>=3.5",
     "zeroconf>=0.136.0",
 ]
 
@@ -16,9 +17,6 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
-]
-web = [
-    "aiohttp>=3.10",
 ]
 
 [project.scripts]
