@@ -117,7 +117,10 @@ class StatusServer:
     # ── WebSocket handler ──
 
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
-        ws = web.WebSocketResponse(protocols=["arduino"], heartbeat=20.0)
+        # heartbeat=None: rely on protocol-level ping/pong (ESP32 WebSocketsClient
+        # doesn't reliably auto-respond to WS control-frame PINGs, causing false
+        # PONG-timeout disconnects every ~30s).
+        ws = web.WebSocketResponse(protocols=["arduino"], heartbeat=None, receive_timeout=120.0)
         await ws.prepare(request)
 
         dev = ConnectedDevice(ws=ws)

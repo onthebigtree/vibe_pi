@@ -61,6 +61,22 @@ static const int PAGE_COUNT = 3;
 static bool sleeping = false;
 static lv_color_t current_tool_color = CLR_ACCENT;
 
+// Tool selection state — exposed so ui_update_status and gesture handlers share it.
+char selected_tool[24] = "";          // empty = auto-pick active_tool
+char available_tools[6][24];           // populated from each status payload
+int available_tools_count = 0;
+
+void ui_cycle_tool() {
+    if (available_tools_count == 0) return;
+    int idx = 0;
+    for (int i = 0; i < available_tools_count; i++) {
+        if (strcmp(available_tools[i], selected_tool) == 0) { idx = i; break; }
+    }
+    idx = (idx + 1) % available_tools_count;
+    strlcpy(selected_tool, available_tools[idx], sizeof(selected_tool));
+    Serial.printf("[UI] Cycled to tool: %s\n", selected_tool);
+}
+
 // ── Forward declarations ──
 static void create_overview_tile();
 static void create_detail_tile();
@@ -280,14 +296,16 @@ void ui_show_dashboard() {
             ui_set_page(current_page + 1);
         } else if (dir == LV_DIR_RIGHT && current_page > 0) {
             ui_set_page(current_page - 1);
+        } else if (dir == LV_DIR_TOP) {
+            // Swipe up → cycle to next AI tool
+            ui_cycle_tool();
         } else if (dir == LV_DIR_BOTTOM) {
-            // Swipe down → wake or settings
+            // Swipe down → wake (or take to system page)
             if (power_get_state() != PowerState::ACTIVE) {
                 power_force_state(PowerState::ACTIVE);
+            } else {
+                ui_set_page(PAGE_COUNT - 1);  // jump to system page
             }
-        } else if (dir == LV_DIR_TOP) {
-            // Swipe up → screen off
-            power_force_state(PowerState::SCREEN_OFF);
         }
     }, LV_EVENT_GESTURE, nullptr);
 
@@ -337,12 +355,31 @@ static void create_overview_tile() {
     lv_obj_set_style_arc_rounded(ov_arc_main, true, LV_PART_INDICATOR);
     lv_obj_center(ov_arc_main);
 
-    // Tool name
+    // Tool name (label) — purely visual
     ov_lbl_tool = lv_label_create(tile_overview);
     lv_label_set_text(ov_lbl_tool, "Idle");
     lv_obj_set_style_text_color(ov_lbl_tool, CLR_TEXT_PRIMARY, 0);
     lv_obj_set_style_text_font(ov_lbl_tool, FONT_TITLE, 0);
     lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, -60);
+
+    // Big invisible tap target over the entire top half of the tile — taps cycle tools.
+    // Sits ABOVE all other widgets, but doesn't block tileview drag (we forward release
+    // to scroll handling via setting parent's scroll dir).
+    lv_obj_t *tap_target = lv_obj_create(tile_overview);
+    lv_obj_set_size(tap_target, SCREEN_WIDTH, SCREEN_HEIGHT / 2);
+    lv_obj_align(tap_target, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(tap_target, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(tap_target, 0, 0);
+    lv_obj_set_style_pad_all(tap_target, 0, 0);
+    lv_obj_remove_flag(tap_target, LV_OBJ_FLAG_SCROLLABLE);
+    // PRESSED fires on touch-down (no wait for release), but debounce 200ms
+    // so a press-and-drag doesn't cycle multiple tools.
+    lv_obj_add_event_cb(tap_target, [](lv_event_t *e) {
+        static unsigned long lastCycle = 0;
+        if (millis() - lastCycle < 200) return;
+        lastCycle = millis();
+        ui_cycle_tool();
+    }, LV_EVENT_PRESSED, nullptr);
 
     // Status dot + text
     ov_lbl_status = lv_label_create(tile_overview);
@@ -550,10 +587,30 @@ void ui_update_status(JsonObject &payload) {
 
     const char *activeTool = payload["active_tool"];
 
-    // -- Update overview page --
+    // -- Cache the list of tools in payload so swipe-up can cycle through them --
     JsonObject tools = payload["tools"];
-    if (activeTool && strcmp(activeTool, "idle") != 0 && tools.containsKey(activeTool)) {
-        JsonObject tool = tools[activeTool];
+    available_tools_count = 0;
+    for (JsonPair kv : tools) {
+        if (available_tools_count >= 6) break;
+        strlcpy(available_tools[available_tools_count], kv.key().c_str(), 24);
+        available_tools_count++;
+    }
+    // If selected_tool not in the list, fall back to active_tool
+    bool selected_valid = false;
+    for (int i = 0; i < available_tools_count; i++) {
+        if (strcmp(available_tools[i], selected_tool) == 0) { selected_valid = true; break; }
+    }
+    if (!selected_valid && activeTool && strcmp(activeTool, "idle") != 0) {
+        strlcpy(selected_tool, activeTool, sizeof(selected_tool));
+    }
+
+    // Use selected_tool for display (falls back to active_tool)
+    const char *displayedTool = selected_tool[0] ? selected_tool : activeTool;
+
+    // -- Update overview page --
+    if (displayedTool && strcmp(displayedTool, "idle") != 0 && tools.containsKey(displayedTool)) {
+        JsonObject tool = tools[displayedTool];
+        activeTool = displayedTool;  // alias for downstream code
 
         current_tool_color = theme_tool_color(activeTool);
 

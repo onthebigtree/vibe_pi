@@ -21,6 +21,7 @@ void ui_update_status(JsonObject &payload);
 void ui_set_page(int page_index);
 int  ui_get_current_page();
 int  ui_get_page_count();
+void ui_cycle_tool();
 
 // ── Display control ──
 void display_set_brightness(uint8_t level);

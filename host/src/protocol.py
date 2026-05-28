@@ -105,14 +105,16 @@ def make_status(tools: dict, system: dict, active_tool: str) -> dict:
 
 
 def make_status_compact(tools: dict, system: dict, active_tool: str) -> dict:
-    """Tiny status for serial USB CDC (<256B target — fits in single USB packet).
+    """Compact status with ALL active tools so the device can cycle through them.
 
-    Only active tool included; other tools stripped entirely."""
+    Each tool gets the minimum fields needed to render its card. Target <500B
+    with the 2KB ESP32 USB CDC RX buffer; fragments fine over multiple USB packets."""
     compact_tools = {}
-    if active_tool != "idle" and active_tool in tools:
-        d = tools[active_tool]
-        compact_tools[active_tool] = {
-            "status": (d.get("status") or "idle")[:8],
+    for name, d in tools.items():
+        if d.get("status") != "active":
+            continue
+        compact_tools[name] = {
+            "status": "active",
             "tokens_display": (d.get("tokens_display") or "")[:8],
             "cost_display": (d.get("cost_display") or "")[:8],
             "model": (d.get("model") or "")[:10],
