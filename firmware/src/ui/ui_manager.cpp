@@ -292,6 +292,18 @@ void ui_show_dashboard() {
     lv_obj_remove_flag(ov_dot_indicators, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(ov_dot_indicators, LV_OBJ_FLAG_SCROLLABLE);
     create_dot_indicators(ov_dot_indicators, 0, PAGE_COUNT);
+
+    // Screen-level gesture handler — instant page switch, bypass slow tileview anim
+    lv_obj_add_event_cb(scr_dashboard, [](lv_event_t *e) {
+        lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
+        Serial.printf("[GEST] dir=%d cur=%d\n", (int)dir, current_page);
+        if (dir == LV_DIR_LEFT && current_page < PAGE_COUNT - 1) {
+            ui_set_page(current_page + 1);
+        } else if (dir == LV_DIR_RIGHT && current_page > 0) {
+            ui_set_page(current_page - 1);
+        }
+    }, LV_EVENT_GESTURE, nullptr);
+
     Serial.printf("[DBG] dashboard ready heap=%lu, loading screen\n", ESP.getFreeHeap());
     lv_screen_load(scr_dashboard);
     Serial.println("[DBG] dashboard loaded");
@@ -361,7 +373,6 @@ static void create_detail_tile() {
     lv_obj_set_style_text_font(td_lbl_title, FONT_LARGE, 0);
     lv_obj_align(td_lbl_title, LV_ALIGN_TOP_MID, 0, 80);
 
-    // Usage arc
     td_arc_usage = lv_arc_create(tile_tool_detail);
     lv_obj_set_size(td_arc_usage, 160, 160);
     lv_arc_set_rotation(td_arc_usage, 135);
@@ -386,9 +397,6 @@ static void create_detail_tile() {
     lv_label_set_text(td_lbl_task, "");
     lv_obj_set_style_text_color(td_lbl_task, CLR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(td_lbl_task, FONT_SMALL, 0);
-    lv_obj_set_width(td_lbl_task, 320);
-    lv_label_set_long_mode(td_lbl_task, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(td_lbl_task, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(td_lbl_task, LV_ALIGN_CENTER, 0, 80);
 
     td_lbl_session = lv_label_create(tile_tool_detail);
@@ -532,22 +540,27 @@ void ui_update_status(JsonObject &payload) {
         lv_obj_set_style_text_color(ov_lbl_tokens, current_tool_color, 0);
 
         // -- Update detail page --
-        lv_label_set_text(td_lbl_title, displayName);
-        lv_obj_set_style_text_color(td_lbl_title, current_tool_color, 0);
-
-        lv_arc_set_value(td_arc_usage, usagePct);
-        lv_obj_set_style_arc_color(td_arc_usage, current_tool_color, LV_PART_INDICATOR);
-        lv_label_set_text_fmt(td_lbl_usage_pct, "%d%%", usagePct);
+        if (td_lbl_title) {
+            lv_label_set_text(td_lbl_title, displayName);
+            lv_obj_set_style_text_color(td_lbl_title, current_tool_color, 0);
+        }
+        if (td_arc_usage) {
+            lv_arc_set_value(td_arc_usage, usagePct);
+            lv_obj_set_style_arc_color(td_arc_usage, current_tool_color, LV_PART_INDICATOR);
+        }
+        if (td_lbl_usage_pct) lv_label_set_text_fmt(td_lbl_usage_pct, "%d%%", usagePct);
 
         const char *task = tool["current_task"] | "";
-        lv_label_set_text(td_lbl_task, task[0] ? task : "No active task");
+        if (td_lbl_task) lv_label_set_text(td_lbl_task, task[0] ? task : "No active task");
 
         int sessions = tool["session_count"] | 0;
-        lv_label_set_text_fmt(td_lbl_session, "%d session%s", sessions, sessions != 1 ? "s" : "");
+        if (td_lbl_session) lv_label_set_text_fmt(td_lbl_session, "%d session%s", sessions, sessions != 1 ? "s" : "");
 
         int uptime = tool["uptime_min"] | 0;
-        if (uptime > 0) lv_label_set_text_fmt(td_lbl_uptime, "%d min uptime", uptime);
-        else lv_label_set_text(td_lbl_uptime, "");
+        if (td_lbl_uptime) {
+            if (uptime > 0) lv_label_set_text_fmt(td_lbl_uptime, "%d min uptime", uptime);
+            else lv_label_set_text(td_lbl_uptime, "");
+        }
 
     } else {
         lv_label_set_text(ov_lbl_tool, "Idle");
@@ -559,12 +572,12 @@ void ui_update_status(JsonObject &payload) {
         lv_label_set_text(ov_lbl_cost, "");
         lv_arc_set_value(ov_arc_main, 0);
 
-        lv_label_set_text(td_lbl_title, "No Tool Active");
-        lv_arc_set_value(td_arc_usage, 0);
-        lv_label_set_text(td_lbl_usage_pct, "—");
-        lv_label_set_text(td_lbl_task, "");
-        lv_label_set_text(td_lbl_session, "");
-        lv_label_set_text(td_lbl_uptime, "");
+        if (td_lbl_title) lv_label_set_text(td_lbl_title, "No Tool Active");
+        if (td_arc_usage) lv_arc_set_value(td_arc_usage, 0);
+        if (td_lbl_usage_pct) lv_label_set_text(td_lbl_usage_pct, "—");
+        if (td_lbl_task) lv_label_set_text(td_lbl_task, "");
+        if (td_lbl_session) lv_label_set_text(td_lbl_session, "");
+        if (td_lbl_uptime) lv_label_set_text(td_lbl_uptime, "");
     }
 
     // -- Update system page --
@@ -591,7 +604,8 @@ void ui_update_status(JsonObject &payload) {
 void ui_set_page(int page_index) {
     if (!tv || page_index < 0 || page_index >= PAGE_COUNT) return;
     lv_obj_t *tiles[] = {tile_overview, tile_tool_detail, tile_system};
-    lv_tileview_set_tile(tv, tiles[page_index], LV_ANIM_ON);
+    // LV_ANIM_OFF: instant — swipe animation is too slow on this display + complex widgets
+    lv_tileview_set_tile(tv, tiles[page_index], LV_ANIM_OFF);
     current_page = page_index;
     update_dot_indicators(current_page);
 }

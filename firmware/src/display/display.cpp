@@ -14,10 +14,13 @@ static uint32_t _touch_call_count = 0;
 static uint32_t _touch_press_count = 0;
 static TouchPoint _cached_tp = {0, 0, false};
 
+static uint32_t _flush_count = 0;
 static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map) {
+    _flush_count++;
     if (g_display) g_display->flush(area, px_map);
     lv_display_flush_ready(d);
 }
+uint32_t display_get_flush_count() { return _flush_count; }
 
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     _touch_call_count++;
