@@ -176,10 +176,10 @@ async def run(cfg: AppConfig):
             if server.device_count > 0:
                 await server.broadcast_status(tools_data, system_data, active_tool)
 
-            # Send to serial device
+            # Send to serial device (compact — fits in 256B USB CDC chunks)
             if serial_tx.connected and serial_tx.device_id:
-                from .protocol import make_status
-                await serial_tx.send_json(make_status(tools_data, system_data, active_tool))
+                from .protocol import make_status_compact
+                await serial_tx.send_json(make_status_compact(tools_data, system_data, active_tool))
 
             await asyncio.sleep(cfg.polling.interval)
 

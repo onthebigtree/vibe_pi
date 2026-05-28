@@ -162,75 +162,61 @@ void ui_show_provision(const char *ap_ssid, const char *ap_ip) {
     lv_screen_load(scr_provision);
 }
 
-void ui_show_connecting_wifi() {
+// Shared cached screens — created once, reused
+static lv_obj_t *scr_connecting_wifi = nullptr;
+static lv_obj_t *scr_wifi_failed = nullptr;
+static lv_obj_t *scr_discovering = nullptr;
+static lv_obj_t *scr_reconnecting = nullptr;
+
+static lv_obj_t *make_spinner_screen(const char *text, lv_color_t indicator_color) {
     lv_obj_t *scr = lv_obj_create(nullptr);
     apply_round_clip(scr);
 
     lv_obj_t *spinner = lv_spinner_create(scr);
     lv_obj_set_size(spinner, 50, 50);
     lv_obj_set_style_arc_color(spinner, CLR_SURFACE_ALT, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(spinner, CLR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner, indicator_color, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(spinner, 4, LV_PART_MAIN);
     lv_obj_set_style_arc_width(spinner, 4, LV_PART_INDICATOR);
     lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -30);
 
     lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "Connecting to WiFi...");
-    lv_obj_set_style_text_color(lbl, CLR_TEXT_SECONDARY, 0);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_color(lbl, lv_color_eq(indicator_color, CLR_WARNING) ? CLR_WARNING : CLR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 20);
+    return scr;
+}
 
-    scr_connecting = scr;
-    lv_screen_load(scr);
+void ui_show_connecting_wifi() {
+    if (!scr_connecting_wifi) {
+        scr_connecting_wifi = make_spinner_screen("Connecting to WiFi...", CLR_ACCENT);
+        scr_connecting = scr_connecting_wifi;
+    }
+    lv_screen_load(scr_connecting_wifi);
 }
 
 void ui_show_wifi_failed() {
-    lv_obj_t *scr = create_status_screen(LV_SYMBOL_WARNING, "WiFi Failed",
-        "Could not connect.\nHold button to\nre-enter setup.");
-    lv_obj_set_style_text_color(lv_obj_get_child(scr, 0), CLR_ERROR, 0);
-    lv_screen_load(scr);
+    if (!scr_wifi_failed) {
+        scr_wifi_failed = create_status_screen(LV_SYMBOL_WARNING, "WiFi Failed",
+            "Could not connect.\nHold button to\nre-enter setup.");
+        lv_obj_set_style_text_color(lv_obj_get_child(scr_wifi_failed, 0), CLR_ERROR, 0);
+    }
+    lv_screen_load(scr_wifi_failed);
 }
 
 void ui_show_discovering() {
-    lv_obj_t *scr = lv_obj_create(nullptr);
-    apply_round_clip(scr);
-
-    lv_obj_t *spinner = lv_spinner_create(scr);
-    lv_obj_set_size(spinner, 50, 50);
-    lv_obj_set_style_arc_color(spinner, CLR_SURFACE_ALT, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(spinner, CLR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(spinner, 4, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 4, LV_PART_INDICATOR);
-    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -30);
-
-    lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "Finding host...");
-    lv_obj_set_style_text_color(lbl, CLR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 20);
-
-    lv_screen_load(scr);
+    if (!scr_discovering) {
+        scr_discovering = make_spinner_screen("Finding host...", CLR_ACCENT);
+    }
+    lv_screen_load(scr_discovering);
 }
 
 void ui_show_reconnecting() {
-    lv_obj_t *scr = lv_obj_create(nullptr);
-    apply_round_clip(scr);
-
-    lv_obj_t *spinner = lv_spinner_create(scr);
-    lv_obj_set_size(spinner, 50, 50);
-    lv_obj_set_style_arc_color(spinner, CLR_SURFACE_ALT, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(spinner, CLR_WARNING, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(spinner, 4, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 4, LV_PART_INDICATOR);
-    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -30);
-
-    lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "Reconnecting...");
-    lv_obj_set_style_text_color(lbl, CLR_WARNING, 0);
-    lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 20);
-
-    lv_screen_load(scr);
+    if (!scr_reconnecting) {
+        scr_reconnecting = make_spinner_screen("Reconnecting...", CLR_WARNING);
+    }
+    lv_screen_load(scr_reconnecting);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -246,13 +232,18 @@ static void on_tile_changed(lv_event_t *e) {
 }
 
 void ui_show_dashboard() {
+    Serial.printf("[DBG] ui_show_dashboard entry, heap=%lu\n", ESP.getFreeHeap());
     if (scr_dashboard) {
+        Serial.println("[DBG] reusing cached dashboard");
         lv_screen_load(scr_dashboard);
         return;
     }
 
+    Serial.println("[DBG] creating dashboard screen (no round_clip)");
     scr_dashboard = lv_obj_create(nullptr);
-    apply_round_clip(scr_dashboard);
+    lv_obj_set_style_bg_color(scr_dashboard, lv_color_black(), 0);
+    // SKIP apply_round_clip(scr_dashboard);  // expensive alpha mask
+    Serial.println("[DBG] after round_clip skip");
 
     // Tileview for horizontal swipe between pages
     tv = lv_tileview_create(scr_dashboard);
@@ -268,9 +259,13 @@ void ui_show_dashboard() {
     lv_obj_set_style_bg_opa(tile_tool_detail, LV_OPA_TRANSP, 0);
     lv_obj_set_style_bg_opa(tile_system, LV_OPA_TRANSP, 0);
 
+    Serial.println("[DBG] creating overview");
     create_overview_tile();
+    Serial.println("[DBG] creating detail");
     create_detail_tile();
+    Serial.println("[DBG] creating system");
     create_system_tile();
+    Serial.printf("[DBG] tiles done heap=%lu\n", ESP.getFreeHeap());
 
     lv_obj_add_event_cb(tv, on_tile_changed, LV_EVENT_VALUE_CHANGED, nullptr);
 
@@ -285,8 +280,9 @@ void ui_show_dashboard() {
     lv_obj_set_style_pad_column(ov_dot_indicators, 8, 0);
     lv_obj_align(ov_dot_indicators, LV_ALIGN_BOTTOM_MID, 0, -50);
     create_dot_indicators(ov_dot_indicators, 0, PAGE_COUNT);
-
+    Serial.printf("[DBG] dashboard ready heap=%lu, loading screen\n", ESP.getFreeHeap());
     lv_screen_load(scr_dashboard);
+    Serial.println("[DBG] dashboard loaded");
 }
 
 // ── Overview page ──

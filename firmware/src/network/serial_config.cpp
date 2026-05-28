@@ -226,22 +226,43 @@ static bool _serial_transport_active = false;
 static unsigned long _last_serial_status = 0;
 
 void serial_config_loop() {
+    int read_this_iter = 0;
     while (Serial.available()) {
         char c = Serial.read();
+        read_this_iter++;
         if (c == '\n' || c == '\r') {
             if (_buf.length() > 0) {
                 JsonDocument doc;
-                if (!deserializeJson(doc, _buf)) {
+                DeserializationError err = deserializeJson(doc, _buf);
+                if (!err) {
                     if (doc.containsKey("cmd")) {
                         handle_cmd(doc);
                     } else if (doc.containsKey("type")) {
                         handle_protocol_msg(doc);
+                    }
+                } else {
+                    // Search for embedded { } pairs — buf may have multiple concatenated msgs
+                    Serial.printf("[JSON ERR] %s len=%u\n", err.c_str(), _buf.length());
+                    // Try to recover: find last `}{` boundary and parse last msg
+                    int last = _buf.lastIndexOf("}{");
+                    if (last > 0) {
+                        String last_msg = _buf.substring(last + 1);
+                        JsonDocument doc2;
+                        if (!deserializeJson(doc2, last_msg)) {
+                            Serial.printf("[JSON RECOVERED] parsing last msg, len=%u\n", last_msg.length());
+                            if (doc2.containsKey("type")) handle_protocol_msg(doc2);
+                        }
                     }
                 }
                 _buf = "";
             }
         } else {
             _buf += c;
+            if (_buf.length() > 2048) {
+                Serial.printf("[BUF OVF] %u bytes, last10=%.10s\n",
+                              _buf.length(), _buf.c_str() + _buf.length() - 10);
+                _buf = "";
+            }
         }
     }
 }
@@ -271,6 +292,10 @@ static void handle_protocol_msg(JsonDocument &doc) {
     else if (strcmp(msgType, "status") == 0) {
         _last_serial_status = millis();
         power_register_activity();
+        static uint32_t status_count = 0;
+        status_count++;
+        const char *at = p["active_tool"] | "?";
+        Serial.printf("[STATUS #%u] active=%s\n", status_count, at);
         ui_update_status(p);
     }
     else if (strcmp(msgType, "pong") == 0) {

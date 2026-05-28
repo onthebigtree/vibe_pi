@@ -364,11 +364,14 @@ void loop() {
 
     lv_timer_handler();
 
-    // USB CDC keepalive — macOS driver stops polling after silence
-    static unsigned long lastSerialKeepalive = 0;
-    if (millis() - lastSerialKeepalive > 2000) {
-        lastSerialKeepalive = millis();
-        Serial.println();  // empty line keeps USB CDC active
+    // Heartbeat: prove main loop is alive, report state + free heap
+    static unsigned long lastHeartbeat = 0;
+    if (millis() - lastHeartbeat > 3000) {
+        lastHeartbeat = millis();
+        Serial.printf("[HB] state=%d loop=%lu heap=%lu serial_tx=%d\n",
+                     (int)appState, loopCount,
+                     ESP.getFreeHeap(),
+                     serial_transport_is_active() ? 1 : 0);
     }
 
     delay(5);
