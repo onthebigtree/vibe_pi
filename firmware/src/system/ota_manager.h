@@ -18,6 +18,7 @@ struct OtaInfo {
     char     current_version[16];
     uint32_t size_bytes;
     char     sha256[65];
+    char     signature[129];  // Ed25519 signature hex (64 bytes = 128 hex chars + null)
     char     changelog[128];
     char     changelog_zh[128];
     char     url[256];

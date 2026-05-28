@@ -147,10 +147,18 @@ void ws_client_init(const char *host, uint16_t port) {
     strlcpy(settings_get().host_addr, host, sizeof(settings_get().host_addr));
     settings_get().host_port = port;
 
-    ws.begin(host, port, "/ws");
+    // WSS on port 8766 (8765 + 1) by convention; insecure ws on 8765
+    if (port == 8766 || port == 443) {
+        ws.beginSSL(host, port, "/ws");
+        Serial.printf("[WSS] Connecting to wss://%s:%d (TLS, no cert verify)\n", host, port);
+    } else {
+        ws.begin(host, port, "/ws");
+        Serial.printf("[WS] Connecting to %s:%d\n", host, port);
+    }
     ws.onEvent(on_ws_event);
     ws.setReconnectInterval(0);
-    Serial.printf("[WS] Connecting to %s:%d\n", host, port);
+    // Respond to WebSocket-protocol PING control frames every 15s; reconnect after 2 missed pongs
+    ws.enableHeartbeat(15000, 3000, 2);
 }
 
 void ws_client_loop() {

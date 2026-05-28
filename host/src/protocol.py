@@ -143,12 +143,14 @@ def make_settings_ack(ok: bool = True) -> dict:
 
 def make_ota_available(version: str, current_version: str, size_bytes: int,
                        sha256: str, changelog: str, changelog_zh: str,
-                       url: str, force: bool = False, channel: str = "stable") -> dict:
+                       url: str, force: bool = False, channel: str = "stable",
+                       signature: str = "") -> dict:
     return _msg(MsgType.OTA_AVAILABLE, {
         "version": version,
         "current_version": current_version,
         "size_bytes": size_bytes,
         "sha256": sha256,
+        "signature": signature,
         "changelog": changelog,
         "changelog_zh": changelog_zh,
         "url": url,
@@ -157,8 +159,10 @@ def make_ota_available(version: str, current_version: str, size_bytes: int,
     })
 
 
-def make_ota_start(version: str, url: str, sha256: str) -> dict:
-    return _msg(MsgType.OTA_START, {"version": version, "url": url, "sha256": sha256})
+def make_ota_start(version: str, url: str, sha256: str, signature: str = "") -> dict:
+    return _msg(MsgType.OTA_START, {
+        "version": version, "url": url, "sha256": sha256, "signature": signature
+    })
 
 
 def make_reset_command(level: int, reason: str = "") -> dict:

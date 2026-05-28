@@ -7,7 +7,7 @@ import signal
 import sys
 from pathlib import Path
 
-from .cli import build_parser, handle_devices, handle_ota, __version__
+from .cli import build_parser, handle_devices, handle_ota, handle_cert, __version__
 from .config import AppConfig, init_config, load_config
 from .collectors import (ClaudeCodeCollector, CodexCollector, GeminiCLICollector,
                          CursorCollector, WindsurfCollector, SystemCollector)
@@ -92,6 +92,18 @@ async def run(cfg: AppConfig):
     })
     server.set_dashboard_html(DASHBOARD_HTML)
     server.set_ota_dir(ota.firmware_dir)
+    server.set_ota_manager(ota)
+
+    # Serial fallback for send_to_device: if WS device not connected, try serial
+    _orig_send_to_device = server.send_to_device
+    async def send_to_device_fallback(device_id: str, msg: dict) -> bool:
+        if await _orig_send_to_device(device_id, msg):
+            return True
+        if serial_tx.connected and serial_tx.device_id == device_id:
+            await serial_tx.send_json(msg)
+            return True
+        return False
+    server.send_to_device = send_to_device_fallback
 
     mdns = MDNSAdvertiser(port=cfg.server.port, host_version=__version__) if cfg.server.mdns else None
 
@@ -217,6 +229,10 @@ def main():
 
     if command == "ota":
         handle_ota(args)
+        return
+
+    if command == "cert":
+        handle_cert(args)
         return
 
     if command == "pair":

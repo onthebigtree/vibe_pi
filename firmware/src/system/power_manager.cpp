@@ -6,6 +6,8 @@
 #include "hal/board.h"
 #include <Wire.h>
 #include <esp_wifi.h>
+#include <esp_sleep.h>
+#include "../display/display.h"
 
 static PowerState currentState = PowerState::ACTIVE;
 static unsigned long lastActivity = 0;
@@ -97,10 +99,14 @@ void power_loop() {
 
         case PowerState::SCREEN_OFF:
             if (idle > DEEP_SLEEP_TIMEOUT_MS) {
-                currentState = PowerState::DEEP_SLEEP;
-                Serial.println("[Power] → DEEP_SLEEP");
-                // Keep WiFi alive for reconnect, but reduce CPU
-                esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+                Serial.println("[Power] → DEEP_SLEEP (button to wake)");
+                Serial.flush();
+                display_set_brightness(0);
+                // Wake on button GPIO0 (LOW = pressed). EXT0 also wakes from RTC pin.
+                esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_PIN, 0);
+                // Also wake every 5 min to check WiFi/host status briefly
+                esp_sleep_enable_timer_wakeup(5ULL * 60 * 1000 * 1000);
+                esp_deep_sleep_start();  // never returns; chip resets on wake
             }
             if (power_check_imu_wake()) {
                 power_register_activity();
@@ -108,9 +114,7 @@ void power_loop() {
             break;
 
         case PowerState::DEEP_SLEEP:
-            if (power_check_imu_wake()) {
-                power_register_activity();
-            }
+            // Should never reach here — esp_deep_sleep_start() doesn't return
             break;
     }
 

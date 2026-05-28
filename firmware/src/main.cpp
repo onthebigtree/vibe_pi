@@ -109,6 +109,8 @@ void setup() {
 
     display_init();
     ui_init();
+    ui_show_boot();
+    lv_timer_handler();  // render boot splash once before state machine takes over
 
     build_device_id();
     Serial.printf("[VibePi] Device ID: %s\n", deviceId);

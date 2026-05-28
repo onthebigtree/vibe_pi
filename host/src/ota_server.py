@@ -5,14 +5,36 @@ This module handles publishing, manifest, and version queries only.
 """
 
 import hashlib
+import hmac
 import json
 import logging
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger("vibe-pi.ota")
 
 OTA_DIR = Path.home() / ".config" / "vibe-pi" / "firmware"
+OTA_KEY_PATH = Path.home() / ".config" / "vibe-pi" / "ota_signing_key.hex"
+
+
+def get_or_create_signing_key() -> bytes:
+    """Returns the 32-byte signing key, creating one on first call."""
+    if OTA_KEY_PATH.exists():
+        return bytes.fromhex(OTA_KEY_PATH.read_text().strip())
+    OTA_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    key = secrets.token_bytes(32)
+    OTA_KEY_PATH.write_text(key.hex())
+    OTA_KEY_PATH.chmod(0o600)
+    logger.info(f"Generated OTA signing key at {OTA_KEY_PATH}")
+    logger.info(f"Public key (paste into firmware/src/system/ota_pubkey.h):\n  {key.hex()}")
+    return key
+
+
+def sign_firmware(sha256_bytes: bytes) -> str:
+    """HMAC-SHA256 signature of the SHA256 hash (matches firmware verify_signature)."""
+    key = get_or_create_signing_key()
+    return hmac.new(key, sha256_bytes, hashlib.sha256).hexdigest()
 
 
 @dataclass
@@ -63,7 +85,9 @@ class OTAManager:
             import shutil
             shutil.copy2(firmware_path, dest)
 
-        sha256 = hashlib.sha256(dest.read_bytes()).hexdigest()
+        sha256_bytes = hashlib.sha256(dest.read_bytes()).digest()
+        sha256 = sha256_bytes.hex()
+        signature = sign_firmware(sha256_bytes)
 
         release = FirmwareRelease(
             version=version,
@@ -74,6 +98,7 @@ class OTAManager:
             changelog_zh=changelog_zh,
             channel=channel,
             force=force,
+            signature=signature,
         )
         self._releases[version] = release
         self._save_manifest()
@@ -94,6 +119,7 @@ class OTAManager:
                     "changelog_zh": r.changelog_zh,
                     "channel": r.channel,
                     "force": r.force,
+                    "signature": r.signature,
                 }
                 for r in self._releases.values()
             ]

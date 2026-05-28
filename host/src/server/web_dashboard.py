@@ -115,9 +115,16 @@ input,select{background:var(--bg);border:1px solid var(--border);color:var(--tex
 
 <!-- OTA Tab -->
 <div class="tab" id="tab-ota">
+  <div class="card" style="margin-bottom:16px">
+    <h3>Push Firmware to Device</h3>
+    <div class="form-row"><label>Device</label><select id="ota-device"></select></div>
+    <div class="form-row"><label>Version</label><select id="ota-version"></select></div>
+    <div style="margin-top:12px"><button class="btn primary" onclick="pushOTA()">Push Update</button>
+      <span id="ota-result" class="label" style="margin-left:12px"></span></div>
+  </div>
   <div class="card">
-    <h3>Firmware Updates</h3>
-    <p class="label">Manage OTA updates via CLI: <code>vibe-pi-host ota publish FILE VER</code></p>
+    <h3>Published Firmware</h3>
+    <p class="label">Publish via CLI: <code>vibe-pi-host ota publish FILE VER</code></p>
     <div id="ota-releases" style="margin-top:12px"><p class="empty">No firmware releases published</p></div>
   </div>
 </div>
@@ -177,6 +184,41 @@ function showTab(name){
   document.getElementById('tab-'+name).classList.add('active');
   document.querySelector(`nav button[onclick="showTab('${name}')"]`).classList.add('active');
   if(name==='devices') pollDevices();
+  if(name==='ota') pollOTA();
+}
+
+async function pollOTA(){
+  try{
+    const r=await fetch('/api/ota/releases');
+    const d=await r.json();
+    const rel=d.releases||[];
+    const list=document.getElementById('ota-releases');
+    if(!rel.length){list.innerHTML='<p class="empty">No firmware releases published</p>';
+    }else{list.innerHTML='<table><tr><th>Version</th><th>Size</th><th>Channel</th><th>Signed</th><th>SHA256</th></tr>'+
+      rel.map(r=>`<tr><td>v${r.version}</td><td>${(r.size_bytes/1024).toFixed(1)}KB</td>
+        <td>${r.channel}</td><td>${r.signature?'✓':'—'}</td>
+        <td><code style="font-size:10px">${r.sha256.substring(0,16)}…</code></td></tr>`).join('')+'</table>';}
+    const sel=document.getElementById('ota-version');
+    sel.innerHTML=rel.map(r=>`<option value="${r.version}">v${r.version} (${r.channel})</option>`).join('')
+      ||'<option value="">No releases</option>';
+    // mirror device list for ota
+    const dr=await fetch('/api/devices');
+    const dd=await dr.json();
+    const dsel=document.getElementById('ota-device');
+    dsel.innerHTML=(dd.connected||[]).map(c=>`<option value="${c.device_id}">${c.device_id}</option>`).join('')
+      ||'<option value="">No devices online</option>';
+  }catch(e){}
+}
+
+async function pushOTA(){
+  const deviceId=document.getElementById('ota-device').value;
+  const version=document.getElementById('ota-version').value;
+  if(!deviceId||!version){document.getElementById('ota-result').textContent='Select device + version';return;}
+  document.getElementById('ota-result').textContent='Pushing...';
+  const r=await fetch('/api/ota/push',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:deviceId,version:version})});
+  const d=await r.json();
+  document.getElementById('ota-result').textContent=d.ok?'Push sent ✓':'Push failed: '+(d.error||'');
 }
 
 async function pollDevices(){

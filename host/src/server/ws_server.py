@@ -63,6 +63,9 @@ class StatusServer:
     def set_ota_dir(self, path: Path):
         self._ota_dir = path
 
+    def set_ota_manager(self, mgr):
+        self._ota_mgr = mgr
+
     @property
     def device_count(self) -> int:
         return len(self.connections)
@@ -94,6 +97,8 @@ class StatusServer:
         app.router.add_post("/api/devices/{device_id}/reset", self._reset_handler)
         app.router.add_post("/api/devices/{device_id}/rename", self._rename_handler)
         app.router.add_post("/api/devices/{device_id}/ota", self._ota_push_handler)
+        app.router.add_get("/api/ota/releases", self._ota_releases_handler)
+        app.router.add_post("/api/ota/push", self._ota_push_release_handler)
 
         if self._ota_dir:
             self._ota_dir.mkdir(parents=True, exist_ok=True)
@@ -259,6 +264,39 @@ class StatusServer:
         body = await request.json()
         ok = await self.send_to_device(device_id, body)
         return web.json_response({"ok": ok})
+
+    async def _ota_releases_handler(self, request: web.Request):
+        if not getattr(self, "_ota_mgr", None):
+            return web.json_response({"releases": []})
+        return web.json_response({
+            "releases": [
+                {
+                    "version": r.version, "filename": r.filename,
+                    "size_bytes": r.size_bytes, "sha256": r.sha256,
+                    "signature": r.signature, "channel": r.channel,
+                    "changelog": r.changelog, "force": r.force,
+                }
+                for r in self._ota_mgr.get_all()
+            ]
+        })
+
+    async def _ota_push_release_handler(self, request: web.Request):
+        body = await request.json()
+        device_id = body.get("device_id", "")
+        version = body.get("version", "")
+        if not self._ota_mgr:
+            return web.json_response({"ok": False, "error": "ota disabled"})
+        rel = self._ota_mgr._releases.get(version)
+        if not rel:
+            return web.json_response({"ok": False, "error": "version not found"})
+        host_ip = socket.gethostbyname(socket.gethostname())
+        url = f"http://{host_ip}:{self.port}/firmware/{rel.filename}"
+        from ..protocol import make_ota_available
+        msg = make_ota_available(
+            rel.version, "", rel.size_bytes, rel.sha256,
+            rel.changelog, "", url, rel.force, rel.channel, rel.signature)
+        ok = await self.send_to_device(device_id, msg)
+        return web.json_response({"ok": ok, "url": url})
 
     # ── Outbound to devices ──
 

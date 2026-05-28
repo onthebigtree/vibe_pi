@@ -4,6 +4,8 @@
 #include "../display/display.h"
 #include "../system/i18n.h"
 #include "../system/settings_manager.h"
+#include "../system/watchdog.h"
+#include "../system/power_manager.h"
 #include "hal/board.h"
 #include "config.h"
 
@@ -112,36 +114,14 @@ static lv_obj_t *create_status_screen(const char *icon, const char *title, const
 }
 
 void ui_show_boot() {
+    // Lightweight: just text, no arc/anim/round_clip (those hang the renderer)
+    if (scr_boot) { lv_screen_load(scr_boot); return; }
     scr_boot = lv_obj_create(nullptr);
-    apply_round_clip(scr_boot);
-
-    // Animated ring
-    lv_obj_t *ring = lv_arc_create(scr_boot);
-    lv_obj_set_size(ring, 200, 200);
-    lv_arc_set_rotation(ring, 0);
-    lv_arc_set_bg_angles(ring, 0, 360);
-    lv_arc_set_value(ring, 0);
-    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_color(ring, CLR_SURFACE_ALT, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(ring, CLR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(ring, 3, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ring, 3, LV_PART_INDICATOR);
-    lv_obj_center(ring);
-
-    // Boot animation
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, ring);
-    lv_anim_set_values(&a, 0, 100);
-    lv_anim_set_duration(&a, 1500);
-    lv_anim_set_exec_cb(&a, [](void *obj, int32_t v) {
-        lv_arc_set_value((lv_obj_t *)obj, v);
-    });
-    lv_anim_start(&a);
+    lv_obj_set_style_bg_color(scr_boot, lv_color_black(), 0);
 
     lv_obj_t *name = lv_label_create(scr_boot);
     lv_label_set_text(name, "Vibe Pi");
-    lv_obj_set_style_text_color(name, CLR_TEXT_PRIMARY, 0);
+    lv_obj_set_style_text_color(name, CLR_ACCENT, 0);
     lv_obj_set_style_text_font(name, FONT_TITLE, 0);
     lv_obj_align(name, LV_ALIGN_CENTER, 0, -10);
 
@@ -296,13 +276,42 @@ void ui_show_dashboard() {
     // Screen-level gesture handler — instant page switch, bypass slow tileview anim
     lv_obj_add_event_cb(scr_dashboard, [](lv_event_t *e) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
-        Serial.printf("[GEST] dir=%d cur=%d\n", (int)dir, current_page);
         if (dir == LV_DIR_LEFT && current_page < PAGE_COUNT - 1) {
             ui_set_page(current_page + 1);
         } else if (dir == LV_DIR_RIGHT && current_page > 0) {
             ui_set_page(current_page - 1);
+        } else if (dir == LV_DIR_BOTTOM) {
+            // Swipe down → wake or settings
+            if (power_get_state() != PowerState::ACTIVE) {
+                power_force_state(PowerState::ACTIVE);
+            }
+        } else if (dir == LV_DIR_TOP) {
+            // Swipe up → screen off
+            power_force_state(PowerState::SCREEN_OFF);
         }
     }, LV_EVENT_GESTURE, nullptr);
+
+    // Double-tap to wake from dim/off
+    lv_obj_add_event_cb(scr_dashboard, [](lv_event_t *e) {
+        static unsigned long lastTap = 0;
+        unsigned long now = millis();
+        if (now - lastTap < 400) {
+            // Double-tap detected
+            power_force_state(PowerState::ACTIVE);
+            lastTap = 0;
+        } else {
+            lastTap = now;
+        }
+        power_register_activity();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    // Long-press (500ms) to open settings page
+    lv_obj_add_event_cb(scr_dashboard, [](lv_event_t *e) {
+        Serial.println("[GEST] long-press: open settings");
+        // Placeholder: cycle to next page as feedback for now
+        int next = (current_page + 1) % PAGE_COUNT;
+        ui_set_page(next);
+    }, LV_EVENT_LONG_PRESSED, nullptr);
 
     Serial.printf("[DBG] dashboard ready heap=%lu, loading screen\n", ESP.getFreeHeap());
     lv_screen_load(scr_dashboard);
@@ -503,6 +512,42 @@ static void update_dot_indicators(int active) {
 // ═══════════════════════════════════════════════════════════════════
 
 void ui_update_status(JsonObject &payload) {
+    // Memory degradation: skip updates entirely when heap critically low
+    // to give recovery a chance. Status will resume on next refresh.
+    if (mem_is_low()) {
+        static unsigned long lastWarn = 0;
+        if (millis() - lastWarn > 10000) {
+            lastWarn = millis();
+            Serial.printf("[UI] Low memory %lu KB — skipping update\n",
+                          mem_get_free_heap() / 1024);
+        }
+        return;
+    }
+
+    // De-dupe: hash the payload, skip if unchanged from last call
+    static uint32_t lastHash = 0;
+    uint32_t h = 5381;
+    const char *at = payload["active_tool"] | "";
+    for (const char *p = at; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
+    JsonObject t = payload["tools"];
+    if (!t.isNull()) {
+        for (JsonPair kv : t) {
+            JsonObject td = kv.value().as<JsonObject>();
+            const char *tk = td["tokens_display"] | "";
+            const char *ck = td["cost_display"] | "";
+            for (const char *p = tk; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
+            for (const char *p = ck; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
+            h = ((h << 5) + h) + (uint32_t)(td["usage_pct"] | 0);
+        }
+    }
+    JsonObject s = payload["system"];
+    if (!s.isNull()) {
+        h = ((h << 5) + h) + (uint32_t)(s["cpu_pct"] | 0);
+        h = ((h << 5) + h) + (uint32_t)(s["mem_pct"] | 0);
+    }
+    if (h == lastHash) return;  // nothing changed, skip redraw
+    lastHash = h;
+
     const char *activeTool = payload["active_tool"];
 
     // -- Update overview page --

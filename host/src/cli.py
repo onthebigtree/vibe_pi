@@ -63,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_argument("--force", action="store_true", help="Force update")
 
     ota_sub.add_parser("list", help="List published firmware versions")
+    ota_sub.add_parser("keygen", help="Show OTA signing key (creates one if missing)")
+
+    cert = sub.add_parser("cert", help="Manage WSS TLS certificates")
+    cert_sub = cert.add_subparsers(dest="cert_action")
+    cert_sub.add_parser("generate", help="Generate self-signed cert + key for WSS")
+    cert_sub.add_parser("show", help="Show certificate fingerprint")
 
     return parser
 
@@ -113,4 +119,51 @@ def handle_ota(args):
 
     elif args.ota_action == "list" or not args.ota_action:
         for v, r in sorted(ota._releases.items()):
-            print(f"  v{r.version}  {r.size_bytes:>10} bytes  {r.channel}  {'FORCE' if r.force else ''}")
+            sig = "signed" if r.signature else "unsigned"
+            print(f"  v{r.version}  {r.size_bytes:>10} bytes  {r.channel}  {sig}  {'FORCE' if r.force else ''}")
+
+    elif args.ota_action == "keygen":
+        from .ota_server import get_or_create_signing_key, OTA_KEY_PATH
+        key = get_or_create_signing_key()
+        print(f"Signing key: {OTA_KEY_PATH}")
+        print(f"Public key (paste into firmware/src/system/ota_pubkey.h as OTA_PUBKEY):")
+        print(f'  #define OTA_PUBKEY "{key.hex()}"')
+
+
+def handle_cert(args):
+    from pathlib import Path
+    import socket
+    import subprocess
+    cert_dir = Path.home() / ".config" / "vibe-pi" / "tls"
+    cert_path = cert_dir / "server.crt"
+    key_path = cert_dir / "server.key"
+
+    if args.cert_action == "generate":
+        cert_dir.mkdir(parents=True, exist_ok=True)
+        hostname = socket.gethostname()
+        # Generate self-signed cert with the hostname + localhost + 127.0.0.1 as SAN
+        san = f"DNS:{hostname},DNS:localhost,IP:127.0.0.1"
+        try:
+            subprocess.run([
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key_path), "-out", str(cert_path),
+                "-days", "3650", "-subj", f"/CN=Vibe Pi Host ({hostname})",
+                "-addext", f"subjectAltName={san}",
+            ], check=True)
+            key_path.chmod(0o600)
+            print(f"Generated TLS cert: {cert_path}")
+            print(f"Generated TLS key:  {key_path}")
+            print(f"Update config.toml [server]: ssl_cert = \"{cert_path}\"")
+            print(f"                              ssl_key = \"{key_path}\"")
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"openssl failed: {e}", file=sys.stderr)
+            print("Install openssl: brew install openssl", file=sys.stderr)
+
+    elif args.cert_action == "show":
+        if not cert_path.exists():
+            print(f"No cert at {cert_path}. Run: vibe-pi-host cert generate", file=sys.stderr)
+            return
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_path), "-fingerprint", "-sha256", "-noout"],
+            capture_output=True, text=True)
+        print(result.stdout)

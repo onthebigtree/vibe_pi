@@ -24,7 +24,7 @@ mdns = true
 
 [polling]
 # Status collection interval in seconds
-interval = 2.0
+interval = 5.0
 
 [collectors]
 # Enable/disable individual collectors
@@ -63,7 +63,7 @@ class ServerConfig:
 
 @dataclass
 class PollingConfig:
-    interval: float = 2.0
+    interval: float = 5.0
 
 
 @dataclass
