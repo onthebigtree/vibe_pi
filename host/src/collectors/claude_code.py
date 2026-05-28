@@ -112,15 +112,20 @@ class ClaudeCodeCollector(BaseCollector):
             model = ""
             last_task = ""
 
-            # Read efficiently — file may be 10+ MB
-            with path.open("rb") as fp:
-                fp.seek(0, 2)
-                file_size = fp.tell()
-                # Read last 256KB (recent messages only — older are summarized)
-                read_size = min(file_size, 256 * 1024)
-                fp.seek(file_size - read_size)
-                tail = fp.read().decode("utf-8", errors="replace")
+            # Read whole file — sessions need accurate cumulative usage. Cap at 50MB.
+            file_size = path.stat().st_size
+            if file_size > 50 * 1024 * 1024:
+                # Huge session: read first 64KB (for topic) and last 4MB (for recent usage)
+                with path.open("rb") as fp:
+                    head = fp.read(64 * 1024).decode("utf-8", errors="replace")
+                    fp.seek(max(0, file_size - 4 * 1024 * 1024))
+                    tail = head + "\n" + fp.read().decode("utf-8", errors="replace")
+            else:
+                tail = path.read_text(encoding="utf-8", errors="replace")
 
+            # Track first user message of the session as the "topic" (best summary)
+            session_topic = ""
+            turn_count = 0
             for raw in tail.split("\n"):
                 raw = raw.strip()
                 if not raw or not raw.startswith("{"):
@@ -141,27 +146,44 @@ class ClaudeCodeCollector(BaseCollector):
                 if msg.get("model"):
                     model = msg["model"]
                 if entry.get("type") == "user":
+                    turn_count += 1
                     content = msg.get("content")
-                    if isinstance(content, str) and content:
-                        last_task = content[:80]
+                    extracted = ""
+                    if isinstance(content, str):
+                        extracted = content
                     elif isinstance(content, list) and content:
                         first = content[0]
                         if isinstance(first, dict) and first.get("type") == "text":
-                            last_task = first.get("text", "")[:80]
+                            extracted = first.get("text", "")
+                    # Skip tool_use_result / system messages — only count real user prompts
+                    if extracted and not extracted.startswith("<") and len(extracted) > 3:
+                        if not session_topic:
+                            session_topic = extracted.split("\n")[0][:60]
+                        last_task = extracted.split("\n")[0][:60]
+            # Prefer the session topic over the last fragment
+            if session_topic:
+                last_task = session_topic
 
+            # "Tokens used" = real billable input/output, excludes cache hits which are nearly free
             total_tokens = total_input + total_output + total_cache_create
             cost = self._estimate_cost(model, total_input, total_output,
                                         total_cache_read, total_cache_create)
-            usage_pct = (min(int((cost / self._daily_budget) * 100), 100)
-                         if self._daily_budget > 0 else 0)
+            # usage_pct = progress against Opus 200K context window
+            # (token count of a typical full session before /clear)
+            usage_pct = min(int(total_cache_read / 200_000 * 100), 100)
 
             return {
                 "model": _short_model_name(model),
                 "current_task": last_task,
                 "session_count": 1,
+                "turn_count": turn_count,
                 "uptime_min": int(age_min) if age_min < 60 else 0,
                 "tokens_used": total_tokens,
                 "tokens_display": _format_number(total_tokens),
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "cache_read_tokens": total_cache_read,
+                "cache_create_tokens": total_cache_create,
                 "cost_usd": cost,
                 "cost_display": f"${cost:.2f}",
                 "usage_pct": usage_pct,

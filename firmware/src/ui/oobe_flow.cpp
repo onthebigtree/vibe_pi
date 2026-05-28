@@ -25,14 +25,14 @@ void oobe_show() {
     lv_obj_t *icon = lv_label_create(_scr);
     lv_label_set_text(icon, LV_SYMBOL_USB);
     lv_obj_set_style_text_color(icon, CLR_ACCENT, 0);
-    lv_obj_set_style_text_font(icon, &font_zh_28, 0);
+    lv_obj_set_style_text_font(icon, &font_zh_20, 0);
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, -80);
 
     // Title
     lv_obj_t *title = lv_label_create(_scr);
     lv_label_set_text(title, "Vibe Pi");
     lv_obj_set_style_text_color(title, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_text_font(title, &font_zh_28, 0);
+    lv_obj_set_style_text_font(title, &font_zh_20, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, -40);
 
     // Instructions

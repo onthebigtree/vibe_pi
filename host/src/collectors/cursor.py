@@ -35,8 +35,9 @@ class CursorCollector(BaseCollector):
             return self._cached_running
         self._last_check = now
         try:
+            # Match the actual Cursor.app bundle, not macOS CursorUIViewService
             result = subprocess.run(
-                ["pgrep", "-fl", "Cursor"],
+                ["pgrep", "-fl", "Cursor.app/Contents/MacOS"],
                 capture_output=True, text=True, timeout=2,
             )
             self._cached_running = result.returncode == 0
