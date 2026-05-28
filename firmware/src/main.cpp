@@ -91,6 +91,7 @@ static void handle_button() {
 
 // ═══════════════════════════════════════════════════════════════
 void setup() {
+    Serial.setRxBufferSize(2048);  // default 256B too small for status msgs
     Serial.begin(115200);
     delay(300);
     Serial.printf("\n[VibePi] Boot v%s (protocol v%d)\n", FW_VERSION, PROTOCOL_VERSION);
@@ -364,14 +365,16 @@ void loop() {
 
     lv_timer_handler();
 
-    // Heartbeat: prove main loop is alive, report state + free heap
+    // Heartbeat: prove main loop is alive, report state + free heap + touch cb count
     static unsigned long lastHeartbeat = 0;
     if (millis() - lastHeartbeat > 3000) {
         lastHeartbeat = millis();
-        Serial.printf("[HB] state=%d loop=%lu heap=%lu serial_tx=%d\n",
+        Serial.printf("[HB] state=%d loop=%lu heap=%lu serial=%d touch_cb=%lu touch_press=%lu\n",
                      (int)appState, loopCount,
                      ESP.getFreeHeap(),
-                     serial_transport_is_active() ? 1 : 0);
+                     serial_transport_is_active() ? 1 : 0,
+                     display_get_touch_cb_count(),
+                     display_get_touch_press_count());
     }
 
     delay(5);

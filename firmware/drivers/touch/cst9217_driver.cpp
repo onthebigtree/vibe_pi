@@ -53,31 +53,44 @@ bool CST9217Driver::init() {
 }
 
 TouchPoint CST9217Driver::read() {
+    static TouchPoint _last = {0, 0, false};
+    static unsigned long _last_int_low_ms = 0;
+    static const unsigned long HOLD_MS = 40; // bridges INT pulse gaps during drag
+
     TouchPoint tp = {0, 0, false};
 
-    // INT pin: LOW = touch active, HIGH = no touch
-    if (_int != 0xFF && digitalRead(_int) == HIGH) {
-        return tp;
+    // INT pin is the authoritative release signal (register data is stale).
+    // Strategy:
+    //   - INT LOW now → new data; read register, refresh _last
+    //   - INT HIGH now + held within HOLD_MS → keep prior press (handles brief INT pulses during drag)
+    //   - INT HIGH now + past HOLD_MS → released
+    bool int_low = (_int == 0xFF) || (digitalRead(_int) == LOW);
+
+    if (int_low) {
+        _last_int_low_ms = millis();
+        uint8_t buf[8];
+        int n = read_reg16(I2C_ADDR, CST9217_REG_DATA, buf, 7);
+        bool valid = (n == 7) && (buf[0] != 0xFF) && (buf[5] > 0) && (buf[6] == 0xAB);
+        if (valid) {
+            uint16_t x = ((uint16_t)buf[1] << 4) | (buf[3] >> 4);
+            uint16_t y = ((uint16_t)buf[2] << 4) | (buf[3] & 0x0F);
+            tp.pressed = true;
+            x = (_w > x) ? (_w - 1 - x) : 0;
+            y = (_h > y) ? (_h - 1 - y) : 0;
+            tp.x = x;
+            tp.y = y;
+            _last = tp;
+            return tp;
+        }
+        // INT low but register junk — return previous to avoid drop
+        return _last;
     }
 
-    uint8_t buf[8];
-    int n = read_reg16(I2C_ADDR, CST9217_REG_DATA, buf, 7);
-    if (n < 7) return tp;
+    // INT HIGH: bridge brief gaps in continuous drag
+    if (_last.pressed && (millis() - _last_int_low_ms) < HOLD_MS) {
+        return _last;
+    }
 
-    if (buf[0] == 0xFF) return tp;
-
-    uint8_t count = buf[5];
-    if (count == 0 || buf[6] != 0xAB) return tp;
-
-    uint16_t x = ((uint16_t)buf[1] << 4) | (buf[3] >> 4);
-    uint16_t y = ((uint16_t)buf[2] << 4) | (buf[3] & 0x0F);
-
-    tp.pressed = true;
-    // Mirror XY as per Waveshare official: touch.setMirrorXY(true, true)
-    x = (_w > x) ? (_w - 1 - x) : 0;
-    y = (_h > y) ? (_h - 1 - y) : 0;
-    tp.x = x;
-    tp.y = y;
-
+    _last.pressed = false;
     return tp;
 }

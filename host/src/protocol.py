@@ -113,14 +113,14 @@ def make_status_compact(tools: dict, system: dict, active_tool: str) -> dict:
         d = tools[active_tool]
         compact_tools[active_tool] = {
             "status": (d.get("status") or "idle")[:8],
-            "tokens_display": (d.get("tokens_display") or "")[:12],
-            "cost_display": (d.get("cost_display") or "")[:10],
-            "model": (d.get("model") or "")[:14],
-            "usage_pct": int(d.get("usage_pct") or 0),
+            "tokens_display": (d.get("tokens_display") or "")[:8],
+            "cost_display": (d.get("cost_display") or "")[:8],
+            "model": (d.get("model") or "")[:10],
+            "usage_pct": min(int(d.get("usage_pct") or 0), 999),
         }
     compact_sys = {
-        "cpu_pct": int(system.get("cpu_pct") or 0),
-        "mem_pct": int(system.get("mem_pct") or 0),
+        "cpu_pct": min(int(system.get("cpu_pct") or 0), 100),
+        "mem_pct": min(int(system.get("mem_pct") or 0), 100),
     }
     return _msg(MsgType.STATUS, {
         "active_tool": active_tool,

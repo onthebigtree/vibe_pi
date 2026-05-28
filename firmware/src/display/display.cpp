@@ -11,6 +11,7 @@ static lv_color_t *buf1 = nullptr;
 static lv_color_t *buf2 = nullptr;
 
 static uint32_t _touch_call_count = 0;
+static uint32_t _touch_press_count = 0;
 static TouchPoint _cached_tp = {0, 0, false};
 
 static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map) {
@@ -80,10 +81,19 @@ void display_set_brightness(uint8_t level) {
 
 void display_update_touch() {
     if (g_touch) {
-        _cached_tp = g_touch->read();
+        TouchPoint tp = g_touch->read();
+        if (tp.pressed && !_cached_tp.pressed) {
+            _touch_press_count++;
+            Serial.printf("[TOUCH] press #%u at (%d, %d)\n", _touch_press_count, tp.x, tp.y);
+        }
+        _cached_tp = tp;
     }
 }
 
 uint32_t display_get_touch_cb_count() {
     return _touch_call_count;
+}
+
+uint32_t display_get_touch_press_count() {
+    return _touch_press_count;
 }

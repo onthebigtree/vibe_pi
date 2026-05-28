@@ -242,22 +242,32 @@ void ui_show_dashboard() {
     Serial.println("[DBG] creating dashboard screen (no round_clip)");
     scr_dashboard = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scr_dashboard, lv_color_black(), 0);
-    // SKIP apply_round_clip(scr_dashboard);  // expensive alpha mask
-    Serial.println("[DBG] after round_clip skip");
+    lv_obj_set_style_pad_all(scr_dashboard, 0, 0);
+    lv_obj_set_style_border_width(scr_dashboard, 0, 0);
+    lv_obj_remove_flag(scr_dashboard, LV_OBJ_FLAG_SCROLLABLE);
+    Serial.println("[DBG] after style setup");
 
     // Tileview for horizontal swipe between pages
     tv = lv_tileview_create(scr_dashboard);
     lv_obj_set_size(tv, SCREEN_WIDTH, SCREEN_HEIGHT);
     lv_obj_set_style_bg_opa(tv, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(tv, 0, 0);
+    lv_obj_set_style_border_width(tv, 0, 0);
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_scroll_snap_x(tv, LV_SCROLL_SNAP_CENTER);
+    lv_obj_set_scroll_dir(tv, LV_DIR_HOR);
 
     tile_overview    = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
     tile_tool_detail = lv_tileview_add_tile(tv, 1, 0, (lv_dir_t)(LV_DIR_LEFT | LV_DIR_RIGHT));
     tile_system      = lv_tileview_add_tile(tv, 2, 0, LV_DIR_LEFT);
 
-    lv_obj_set_style_bg_opa(tile_overview, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_opa(tile_tool_detail, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_opa(tile_system, LV_OPA_TRANSP, 0);
+    // Tiles: transparent bg, disable internal scrolling (tileview handles swipe)
+    for (lv_obj_t *tile : {tile_overview, tile_tool_detail, tile_system}) {
+        lv_obj_set_style_bg_opa(tile, LV_OPA_TRANSP, 0);
+        lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_pad_all(tile, 0, 0);
+        lv_obj_set_style_border_width(tile, 0, 0);
+    }
 
     Serial.println("[DBG] creating overview");
     create_overview_tile();
@@ -269,7 +279,7 @@ void ui_show_dashboard() {
 
     lv_obj_add_event_cb(tv, on_tile_changed, LV_EVENT_VALUE_CHANGED, nullptr);
 
-    // Page indicator dots
+    // Page indicator dots — make them NON-CLICKABLE so they don't intercept tileview swipes
     ov_dot_indicators = lv_obj_create(scr_dashboard);
     lv_obj_set_size(ov_dot_indicators, 60, 10);
     lv_obj_set_style_bg_opa(ov_dot_indicators, LV_OPA_TRANSP, 0);
@@ -279,6 +289,8 @@ void ui_show_dashboard() {
     lv_obj_set_flex_align(ov_dot_indicators, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(ov_dot_indicators, 8, 0);
     lv_obj_align(ov_dot_indicators, LV_ALIGN_BOTTOM_MID, 0, -50);
+    lv_obj_remove_flag(ov_dot_indicators, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ov_dot_indicators, LV_OBJ_FLAG_SCROLLABLE);
     create_dot_indicators(ov_dot_indicators, 0, PAGE_COUNT);
     Serial.printf("[DBG] dashboard ready heap=%lu, loading screen\n", ESP.getFreeHeap());
     lv_screen_load(scr_dashboard);
@@ -296,6 +308,7 @@ static void create_overview_tile() {
     lv_arc_set_range(ov_arc_main, 0, 100);
     lv_arc_set_value(ov_arc_main, 0);
     lv_obj_remove_flag(ov_arc_main, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ov_arc_main, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_color(ov_arc_main, CLR_BORDER, LV_PART_MAIN);
     lv_obj_set_style_arc_color(ov_arc_main, CLR_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(ov_arc_main, ARC_OUTER_WIDTH, LV_PART_MAIN);
@@ -356,6 +369,7 @@ static void create_detail_tile() {
     lv_arc_set_range(td_arc_usage, 0, 100);
     lv_arc_set_value(td_arc_usage, 0);
     lv_obj_remove_flag(td_arc_usage, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(td_arc_usage, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_color(td_arc_usage, CLR_BORDER, LV_PART_MAIN);
     lv_obj_set_style_arc_color(td_arc_usage, CLR_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(td_arc_usage, 6, LV_PART_MAIN);
@@ -400,6 +414,7 @@ static lv_obj_t *create_gauge_arc(lv_obj_t *parent, int x, int y, int size, lv_c
     lv_arc_set_range(arc, 0, 100);
     lv_arc_set_value(arc, 0);
     lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_color(arc, CLR_BORDER, LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(arc, 5, LV_PART_MAIN);

@@ -169,8 +169,16 @@ async def run(cfg: AppConfig):
                     system_data = data
                 else:
                     tools_data[name] = data
-                    if data.get("status") == "active":
-                        active_tool = name
+
+            # Pick the active tool with the most token usage
+            best_tokens = -1
+            for name, data in tools_data.items():
+                if data.get("status") != "active":
+                    continue
+                tokens = int(data.get("tokens_used") or 0)
+                if tokens > best_tokens:
+                    best_tokens = tokens
+                    active_tool = name
 
             # Broadcast to WS devices
             if server.device_count > 0:

@@ -70,21 +70,26 @@ class ClaudeCodeCollector(BaseCollector):
         return self._cached_running
 
     def _find_active_session(self) -> dict[str, Any] | None:
+        """Find the most recently modified JSONL session file across all projects."""
         projects_dir = self._claude_dir / "projects"
         if not projects_dir.exists():
             return None
 
         latest_file = None
-        latest_mtime = 0
+        latest_mtime = 0.0
 
         try:
             for project_dir in projects_dir.iterdir():
                 if not project_dir.is_dir():
                     continue
-                for f in project_dir.iterdir():
-                    if f.suffix == ".json" and f.stat().st_mtime > latest_mtime:
-                        latest_mtime = f.stat().st_mtime
-                        latest_file = f
+                for f in project_dir.glob("*.jsonl"):
+                    try:
+                        mtime = f.stat().st_mtime
+                        if mtime > latest_mtime:
+                            latest_mtime = mtime
+                            latest_file = f
+                    except OSError:
+                        continue
         except (PermissionError, OSError):
             return None
 
@@ -95,49 +100,112 @@ class ClaudeCodeCollector(BaseCollector):
         if age_min > 60:
             return None
 
+        return self._parse_jsonl_session(latest_file, age_min)
+
+    def _parse_jsonl_session(self, path: Path, age_min: float) -> dict[str, Any] | None:
+        """Read the JSONL session — aggregate usage from all assistant messages."""
         try:
-            data = json.loads(latest_file.read_text())
+            total_input = 0
+            total_output = 0
+            total_cache_read = 0
+            total_cache_create = 0
+            model = ""
+            last_task = ""
+
+            # Read efficiently — file may be 10+ MB
+            with path.open("rb") as fp:
+                fp.seek(0, 2)
+                file_size = fp.tell()
+                # Read last 256KB (recent messages only — older are summarized)
+                read_size = min(file_size, 256 * 1024)
+                fp.seek(file_size - read_size)
+                tail = fp.read().decode("utf-8", errors="replace")
+
+            for raw in tail.split("\n"):
+                raw = raw.strip()
+                if not raw or not raw.startswith("{"):
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                msg = entry.get("message") or {}
+                if not isinstance(msg, dict):
+                    continue
+                usage = msg.get("usage")
+                if isinstance(usage, dict):
+                    total_input += int(usage.get("input_tokens") or 0)
+                    total_output += int(usage.get("output_tokens") or 0)
+                    total_cache_read += int(usage.get("cache_read_input_tokens") or 0)
+                    total_cache_create += int(usage.get("cache_creation_input_tokens") or 0)
+                if msg.get("model"):
+                    model = msg["model"]
+                if entry.get("type") == "user":
+                    content = msg.get("content")
+                    if isinstance(content, str) and content:
+                        last_task = content[:80]
+                    elif isinstance(content, list) and content:
+                        first = content[0]
+                        if isinstance(first, dict) and first.get("type") == "text":
+                            last_task = first.get("text", "")[:80]
+
+            total_tokens = total_input + total_output + total_cache_create
+            cost = self._estimate_cost(model, total_input, total_output,
+                                        total_cache_read, total_cache_create)
+            usage_pct = (min(int((cost / self._daily_budget) * 100), 100)
+                         if self._daily_budget > 0 else 0)
+
             return {
-                "model": data.get("model", ""),
-                "current_task": data.get("task", data.get("summary", "")),
+                "model": _short_model_name(model),
+                "current_task": last_task,
                 "session_count": 1,
                 "uptime_min": int(age_min) if age_min < 60 else 0,
+                "tokens_used": total_tokens,
+                "tokens_display": _format_number(total_tokens),
+                "cost_usd": cost,
+                "cost_display": f"${cost:.2f}",
+                "usage_pct": usage_pct,
             }
-        except (json.JSONDecodeError, KeyError, OSError):
+        except OSError:
             return None
 
     def _read_usage_data(self) -> dict[str, Any] | None:
-        search_paths = [
-            self._claude_dir / "usage.json",
-            self._claude_dir / "statsig" / "usage.json",
-            self._claude_dir / "analytics" / "usage.json",
-        ]
-
-        for path in search_paths:
-            if not path.exists():
-                continue
-            try:
-                data = json.loads(path.read_text())
-                tokens = data.get("total_tokens", data.get("tokens", 0))
-                cost = data.get("total_cost", data.get("cost", 0.0))
-                usage_pct = min(int((cost / self._daily_budget) * 100), 100) if self._daily_budget > 0 else 0
-
-                return {
-                    "tokens_used": tokens,
-                    "tokens_display": _format_number(tokens, "tokens"),
-                    "cost_usd": cost,
-                    "cost_display": f"${cost:.2f}",
-                    "usage_pct": usage_pct,
-                }
-            except (json.JSONDecodeError, KeyError, OSError):
-                continue
+        # Aggregated usage now comes from the active JSONL — no separate file needed.
         return None
 
+    @staticmethod
+    def _estimate_cost(model: str, in_tok: int, out_tok: int,
+                       cache_read: int, cache_create: int) -> float:
+        """Rough cost estimate based on Anthropic pricing (USD per million tokens)."""
+        # Default Opus pricing; switch on model substring
+        rates = {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_create": 18.75}
+        m = (model or "").lower()
+        if "sonnet" in m:
+            rates = {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_create": 3.75}
+        elif "haiku" in m:
+            rates = {"input": 0.80, "output": 4.0, "cache_read": 0.08, "cache_create": 1.0}
+        return (in_tok * rates["input"]
+                + out_tok * rates["output"]
+                + cache_read * rates["cache_read"]
+                + cache_create * rates["cache_create"]) / 1_000_000
 
-def _format_number(n: int | float, unit: str = "") -> str:
-    suffix = f" {unit}" if unit else ""
+
+def _short_model_name(model: str) -> str:
+    if not model:
+        return ""
+    m = model.lower()
+    if "opus" in m:
+        return "opus-4"
+    if "sonnet" in m:
+        return "sonnet-4"
+    if "haiku" in m:
+        return "haiku-4"
+    return model[:14]
+
+
+def _format_number(n: int | float) -> str:
     if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M{suffix}"
+        return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n / 1_000:.1f}K{suffix}"
-    return f"{int(n)}{suffix}"
+        return f"{n / 1_000:.1f}K"
+    return f"{int(n)}"
