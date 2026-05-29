@@ -40,6 +40,8 @@ class MsgType(StrEnum):
     DEVICE_RENAME = "device_rename"
     # Error
     ERROR = "error"
+    # User interaction → host re-polls collectors immediately and pushes fresh status
+    REFRESH_REQUEST = "refresh_request"
 
 
 def _msg(msg_type: MsgType, payload: dict[str, Any] | None = None) -> dict:
@@ -117,8 +119,15 @@ def make_status_compact(tools: dict, system: dict, active_tool: str) -> dict:
             "status": "active",
             "tokens_display": (d.get("tokens_display") or "")[:8],
             "cost_display": (d.get("cost_display") or "")[:8],
-            "model": (d.get("model") or "")[:10],
+            "cost_rate_display": (d.get("cost_rate_display") or "")[:8],
+            "model": (d.get("model") or "")[:24],
             "usage_pct": min(int(d.get("usage_pct") or 0), 999),
+            # Task state + rolling 5h/7d usage windows (short keys to stay small).
+            "task": (d.get("task_state") or "")[:8],
+            "u5": (d.get("usage_5h_display") or "")[:8],
+            "u7": (d.get("usage_7d_display") or "")[:8],
+            "p5": min(int(d.get("usage_5h_pct") or 0), 100),  # numeric 5h % for inner ring
+            "tasks": int(d.get("tasks") or 0),
         }
     compact_sys = {
         "cpu_pct": min(int(system.get("cpu_pct") or 0), 100),

@@ -28,6 +28,8 @@
 // ── Peripherals ──
 #define BSP_BUTTON_PIN       0
 #define BSP_IMU_ADDR         0x6B   // QMI8658
+#define BSP_PMU_ADDR         0x34   // AXP2101 power management IC
+#define BSP_RTC_ADDR         0x51   // PCF85063 real-time clock
 
 // ── Board descriptor ──
 static constexpr BoardInfo BSP_BOARD_INFO = {

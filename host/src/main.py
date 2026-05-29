@@ -128,6 +128,8 @@ async def run(cfg: AppConfig):
         await serial_tx.send_json(make_registered(device_id, is_paired, config))
         logger.info(f"Serial device registered: {device_id}")
 
+    refresh_event = asyncio.Event()
+
     async def on_serial_message(data: dict):
         from .protocol import MsgType, parse_msg, make_pong, make_settings_ack
         msg_type, payload = parse_msg(data)
@@ -139,6 +141,9 @@ async def run(cfg: AppConfig):
             await serial_tx.send_json(make_settings_ack())
         elif msg_type == MsgType.HEALTH_REPORT:
             logger.debug(f"Serial health: heap={payload.get('free_heap')}")
+        elif msg_type == MsgType.REFRESH_REQUEST:
+            logger.debug("Device requested immediate refresh")
+            refresh_event.set()
 
     serial_tx.set_register_handler(on_serial_register)
     serial_tx.set_message_handler(on_serial_message)
@@ -201,7 +206,12 @@ async def run(cfg: AppConfig):
                 from .protocol import make_status_compact
                 await serial_tx.send_json(make_status_compact(tools_data, system_data, active_tool))
 
-            await asyncio.sleep(cfg.polling.interval)
+            # Sleep until next poll OR a refresh request arrives
+            try:
+                await asyncio.wait_for(refresh_event.wait(), timeout=cfg.polling.interval)
+                refresh_event.clear()
+            except asyncio.TimeoutError:
+                pass
 
     except asyncio.CancelledError:
         pass

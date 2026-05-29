@@ -1,5 +1,6 @@
 #include "ota_manager.h"
 #include "config.h"
+#include "watchdog.h"
 #include <HTTPClient.h>
 #include <Update.h>
 #include <esp_ota_ops.h>
@@ -154,8 +155,25 @@ bool ota_start_download() {
 
     uint8_t buf[OTA_CHUNK_SIZE];
     int totalRead = 0;
+    unsigned long downloadStart = millis();
+    unsigned long lastProgressMs = downloadStart;
 
     while (http.connected() && totalRead < contentLen) {
+        watchdog_feed();  // long download must not trip the task watchdog
+
+        // Abort if the whole transfer takes too long, or stalls with no new
+        // bytes — http.setTimeout() only covers the initial request, not the
+        // body, so a server that sends headers then hangs would loop forever.
+        unsigned long now = millis();
+        if (now - downloadStart > OTA_DOWNLOAD_TIMEOUT_MS ||
+            now - lastProgressMs > OTA_STALL_TIMEOUT_MS) {
+            Update.abort();
+            strlcpy(errorMsg, "download_timeout", sizeof(errorMsg));
+            state = OtaState::FAILED;
+            http.end();
+            return false;
+        }
+
         int available = stream->available();
         if (available <= 0) { delay(1); continue; }
 
@@ -165,10 +183,20 @@ bool ota_start_download() {
         Update.write(buf, readLen);
         mbedtls_sha256_update(&sha_ctx, buf, readLen);
         totalRead += readLen;
+        lastProgressMs = now;
         progressPct = (uint8_t)((totalRead * 100L) / contentLen);
     }
 
     http.end();
+
+    // The loop can exit cleanly (http.connected() false) with an incomplete
+    // body. Don't hash/install a truncated image — fail explicitly.
+    if (totalRead < contentLen) {
+        Update.abort();
+        snprintf(errorMsg, sizeof(errorMsg), "incomplete_%d/%d", totalRead, contentLen);
+        state = OtaState::FAILED;
+        return false;
+    }
 
     // Verify SHA256
     state = OtaState::VERIFYING;

@@ -1,7 +1,10 @@
 """System resource metrics collector."""
 
-import psutil
+import asyncio
+import time
 from typing import Any
+
+import psutil
 
 from .base import BaseCollector
 
@@ -15,11 +18,12 @@ class SystemCollector(BaseCollector):
         self._prev_net_time = 0.0
 
     async def collect(self) -> dict[str, Any] | None:
-        cpu = psutil.cpu_percent(interval=0.3)
+        # cpu_percent(interval=0.3) blocks for 300ms — run it off the event loop
+        # so it doesn't stall the other collectors / the WS server.
+        cpu = await asyncio.to_thread(psutil.cpu_percent, 0.3)
         mem = psutil.virtual_memory()
 
         net = psutil.net_io_counters()
-        import time
         now = time.time()
         dt = now - self._prev_net_time if self._prev_net_time > 0 else 1.0
 

@@ -1,9 +1,8 @@
 """Gemini CLI status collector."""
 
-import subprocess
-import time
 from typing import Any
 
+from . import process_cache
 from .base import BaseCollector
 
 
@@ -11,13 +10,10 @@ class GeminiCLICollector(BaseCollector):
     name = "gemini_cli"
     display_name = "Gemini CLI"
 
-    def __init__(self):
-        self._last_check = 0.0
-        self._cached_running = False
-
     async def collect(self) -> dict[str, Any] | None:
+        running = await process_cache.any_running("gemini")
         return {
-            "status": "active" if self._is_running() else "inactive",
+            "status": "active" if running else "inactive",
             "model": "",
             "tokens_used": 0,
             "tokens_display": "0",
@@ -28,19 +24,3 @@ class GeminiCLICollector(BaseCollector):
             "current_task": "",
             "uptime_min": 0,
         }
-
-    def _is_running(self) -> bool:
-        now = time.time()
-        if now - self._last_check < 3.0:
-            return self._cached_running
-        self._last_check = now
-
-        try:
-            result = subprocess.run(
-                ["pgrep", "-fl", "gemini"],
-                capture_output=True, text=True, timeout=2,
-            )
-            self._cached_running = result.returncode == 0
-        except Exception:
-            self._cached_running = False
-        return self._cached_running

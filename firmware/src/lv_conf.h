@@ -7,8 +7,10 @@
 // Fonts
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_22 1
 #define LV_FONT_MONTSERRAT_28 1
+#define LV_FONT_MONTSERRAT_40 1   // hero token count on the overview
 
 // Widgets
 #define LV_USE_LABEL     1

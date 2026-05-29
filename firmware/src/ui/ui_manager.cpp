@@ -8,14 +8,19 @@
 #include "../system/power_manager.h"
 #include "hal/board.h"
 #include "config.h"
+#include <math.h>
 
 static void apply_round_clip(lv_obj_t *scr) {
     lv_obj_set_style_bg_color(scr, CLR_BG, 0);
     lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     if (scr_round()) {
+        // Round visual only. Do NOT enable clip_corner: the radial alpha mask
+        // combined with arc widgets (spinners on connecting/pairing/reconnect
+        // screens) deadlocks the QSPI flush path (dev-boundaries rule #1).
+        // The AMOLED is physically round + bezel-masked, so the corners are
+        // never visible anyway.
         lv_obj_set_style_radius(scr, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_clip_corner(scr, true, 0);
     }
 }
 
@@ -32,12 +37,14 @@ static lv_obj_t *tile_tool_detail = nullptr;
 static lv_obj_t *tile_system = nullptr;
 
 // ── Overview page widgets ──
-static lv_obj_t *ov_arc_main = nullptr;
+static lv_obj_t *ov_arc_main = nullptr;   // outer ring = 7d window
+static lv_obj_t *ov_arc_5h = nullptr;     // inner ring = 5h window
+static lv_obj_t *ov_spark = nullptr;      // animated Claude sunburst
 static lv_obj_t *ov_lbl_tool = nullptr;
-static lv_obj_t *ov_lbl_status = nullptr;
+static lv_obj_t *ov_lbl_status = nullptr;  // repurposed as task-state badge
 static lv_obj_t *ov_lbl_model = nullptr;
-static lv_obj_t *ov_lbl_tokens = nullptr;
-static lv_obj_t *ov_lbl_cost = nullptr;
+static lv_obj_t *ov_rd_7d = nullptr;       // top readout: 7d window "7d 9%"
+static lv_obj_t *ov_rd_5h = nullptr;       // top readout: 5h window "5h 92%"
 static lv_obj_t *ov_dot_indicators = nullptr;
 
 // ── Tool detail page widgets ──
@@ -51,6 +58,13 @@ static lv_obj_t *td_lbl_usage_pct = nullptr;
 // ── System page widgets ──
 static lv_obj_t *sys_arc_cpu = nullptr;
 static lv_obj_t *sys_arc_mem = nullptr;
+
+// ── Always-visible battery indicator (top-right of dashboard) ──
+static lv_obj_t *battery_lbl = nullptr;
+
+// ── Mini-tool indicator row on Overview ──
+static lv_obj_t *mini_tools_row = nullptr;
+static lv_obj_t *mini_tool_dots[6] = {nullptr};
 static lv_obj_t *sys_lbl_cpu = nullptr;
 static lv_obj_t *sys_lbl_mem = nullptr;
 static lv_obj_t *sys_lbl_net = nullptr;
@@ -66,6 +80,70 @@ char selected_tool[24] = "";          // empty = auto-pick active_tool
 char available_tools[6][24];           // populated from each status payload
 int available_tools_count = 0;
 
+extern uint16_t axp_voltage();
+extern uint8_t  axp_percent();
+extern bool     axp_charging();
+extern bool     axp_vbus();
+
+void ui_update_battery() {
+    if (!battery_lbl) return;
+    uint16_t mv = axp_voltage();
+    if (mv == 0) {
+        // No AXP2101 detected → hide
+        lv_label_set_text(battery_lbl, "");
+        return;
+    }
+    uint8_t pct = axp_percent();
+    const char *icon;
+    if (axp_charging() || axp_vbus()) icon = LV_SYMBOL_CHARGE;
+    else if (pct > 80) icon = LV_SYMBOL_BATTERY_FULL;
+    else if (pct > 60) icon = LV_SYMBOL_BATTERY_3;
+    else if (pct > 40) icon = LV_SYMBOL_BATTERY_2;
+    else if (pct > 20) icon = LV_SYMBOL_BATTERY_1;
+    else icon = LV_SYMBOL_BATTERY_EMPTY;
+    lv_label_set_text_fmt(battery_lbl, "%s %d%%", icon, pct);
+    lv_obj_set_style_text_color(battery_lbl,
+        pct < 20 ? CLR_ERROR : (pct < 40 ? CLR_WARNING : CLR_TEXT_SECONDARY), 0);
+}
+
+// Forward decl — defined alongside the spark builder further down, but used by
+// ui_cycle_tool() above it for instant recolor on tap.
+static void spark_set_color(lv_obj_t *spark, lv_color_t c);
+
+// De-dupe hash for ui_update_status, hoisted to module scope so ui_cycle_tool()
+// can invalidate it and force the next status to redraw even if the host data
+// is byte-identical (selected_tool is not part of the hash).
+static uint32_t g_status_hash = 0;
+static bool     g_force_status_redraw = false;
+
+static const char *tool_display_name(const char *tool) {
+    if (!tool) return "";
+    if (strcmp(tool, "claude_code") == 0) return "Claude Code";
+    if (strcmp(tool, "codex") == 0)       return "Codex";
+    if (strcmp(tool, "gemini_cli") == 0)  return "Gemini CLI";
+    if (strcmp(tool, "cursor") == 0)      return "Cursor";
+    if (strcmp(tool, "windsurf") == 0)    return "Windsurf";
+    return tool;
+}
+
+// Refresh the mini-dot row from selected_tool/available_tools. Safe to call
+// any time (e.g. instantly on tap, before the host round-trips fresh data).
+static void update_mini_dots() {
+    for (int i = 0; i < 6; i++) {
+        if (!mini_tool_dots[i]) continue;
+        if (i < available_tools_count) {
+            lv_obj_remove_flag(mini_tool_dots[i], LV_OBJ_FLAG_HIDDEN);
+            lv_color_t c = theme_tool_color(available_tools[i]);
+            lv_obj_set_style_bg_color(mini_tool_dots[i], c, 0);
+            bool is_selected = (strcmp(available_tools[i], selected_tool) == 0);
+            lv_obj_set_size(mini_tool_dots[i], is_selected ? 16 : 10, is_selected ? 16 : 10);
+            lv_obj_set_style_bg_opa(mini_tool_dots[i], is_selected ? LV_OPA_COVER : LV_OPA_60, 0);
+        } else {
+            lv_obj_add_flag(mini_tool_dots[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
 void ui_cycle_tool() {
     if (available_tools_count == 0) return;
     int idx = 0;
@@ -75,6 +153,22 @@ void ui_cycle_tool() {
     idx = (idx + 1) % available_tools_count;
     strlcpy(selected_tool, available_tools[idx], sizeof(selected_tool));
     Serial.printf("[UI] Cycled to tool: %s\n", selected_tool);
+
+    // Instant local feedback: reflect the new selection immediately so the tap
+    // feels responsive, instead of waiting for the host status round-trip.
+    if (ov_lbl_tool) {
+        lv_color_t c = theme_tool_color(selected_tool);
+        lv_label_set_text(ov_lbl_tool, tool_display_name(selected_tool));
+        lv_obj_set_style_text_color(ov_lbl_tool, c, 0);
+        spark_set_color(ov_spark, c);
+    }
+    update_mini_dots();
+    lv_obj_invalidate(lv_screen_active());  // clean repaint, no partial-render ghosts
+    // Force the next status to redraw even if its data is unchanged.
+    g_force_status_redraw = true;
+
+    // Ask host for an immediate status refresh so the new tool's data appears now
+    Serial.println("{\"v\":2,\"type\":\"refresh_request\",\"ts\":0,\"payload\":{}}");
 }
 
 // ── Forward declarations ──
@@ -289,6 +383,15 @@ void ui_show_dashboard() {
     lv_obj_remove_flag(ov_dot_indicators, LV_OBJ_FLAG_SCROLLABLE);
     create_dot_indicators(ov_dot_indicators, 0, PAGE_COUNT);
 
+    // Battery indicator — top-right, visible on every tile (sits above tileview)
+    battery_lbl = lv_label_create(scr_dashboard);
+    lv_label_set_text(battery_lbl, "");
+    lv_obj_set_style_text_color(battery_lbl, CLR_TEXT_SECONDARY, 0);
+    lv_obj_set_style_text_font(battery_lbl, FONT_SMALL, 0);
+    lv_obj_align(battery_lbl, LV_ALIGN_TOP_RIGHT, -20, 40);
+    lv_obj_remove_flag(battery_lbl, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(battery_lbl, LV_OBJ_FLAG_SCROLLABLE);
+
     // Screen-level gesture handler — instant page switch, bypass slow tileview anim
     lv_obj_add_event_cb(scr_dashboard, [](lv_event_t *e) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
@@ -336,6 +439,106 @@ void ui_show_dashboard() {
     Serial.println("[DBG] dashboard loaded");
 }
 
+// ── Claude Code pixel mascot (animated) ──
+// The little blocky creature, drawn from a pixel grid as filled rectangles
+// (one rect per horizontal run). It hops with a small translate_y animation —
+// only this ~65px region redraws, so it never approaches the full-screen flush
+// limit that froze the tileview. Body cells recolor per tool; eyes stay black.
+// 'B' = body, 'E' = eye, '.' = transparent.
+static const char *PET_GRID[] = {
+    "...BBBBBBBB...",   // rounded top (corners cut)
+    ".BBBBBBBBBBBB.",
+    "BBBBBBBBBBBBBB",   // widest body
+    "BBBEBBBBBBEBBB",   // eyes — symmetric: col3 <-> col10 (14-wide, axis 6.5)
+    "BBBEBBBBBBEBBB",
+    "BBBBBBBBBBBBBB",
+    ".BBBBBBBBBBBB.",   // rounded bottom
+    ".BB.BB..BB.BB.",   // 4 little feet, symmetric (1-2,4-5 <-> 8-9,11-12)
+    ".BB.BB..BB.BB.",
+};
+#define PET_ROWS 9
+#define PET_COLS 14
+
+static lv_obj_t *build_claude_pet(lv_obj_t *parent, int cell) {
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_set_size(cont, PET_COLS * cell, PET_ROWS * cell);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_CLICKABLE);
+
+    for (int r = 0; r < PET_ROWS; r++) {
+        const char *row = PET_GRID[r];
+        int c = 0;
+        while (c < PET_COLS) {
+            char ch = row[c];
+            if (ch == '.') { c++; continue; }
+            int start = c;
+            while (c < PET_COLS && row[c] == ch) c++;   // extend run
+            int len = c - start;
+            lv_obj_t *px = lv_obj_create(cont);
+            lv_obj_set_size(px, len * cell, cell);
+            lv_obj_set_pos(px, start * cell, r * cell);
+            lv_obj_set_style_radius(px, 0, 0);
+            lv_obj_set_style_border_width(px, 0, 0);
+            lv_obj_set_style_pad_all(px, 0, 0);
+            lv_obj_set_style_bg_opa(px, LV_OPA_COVER, 0);
+            lv_obj_remove_flag(px, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_remove_flag(px, LV_OBJ_FLAG_CLICKABLE);
+            if (ch == 'E') {
+                lv_obj_set_style_bg_color(px, lv_color_black(), 0);
+                lv_obj_set_user_data(px, (void *)0);   // eye — never recolor
+            } else {
+                lv_obj_set_style_bg_color(px, CLR_CLAUDE, 0);
+                lv_obj_set_user_data(px, (void *)1);   // body — recolor per tool
+            }
+        }
+    }
+    return cont;
+}
+
+// Recolor body cells (eyes stay black).
+static void spark_set_color(lv_obj_t *pet, lv_color_t c) {
+    if (!pet) return;
+    uint32_t n = lv_obj_get_child_count(pet);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *ch = lv_obj_get_child(pet, i);
+        if (lv_obj_get_user_data(ch) != (void *)0)
+            lv_obj_set_style_bg_color(ch, c, 0);
+    }
+}
+
+static void pet_opa_cb(void *obj, int32_t v) {
+    lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+}
+
+static void start_spark_breath(lv_obj_t *pet) {
+    // Intentionally static. Any continuous animation here forces per-frame
+    // partial redraws whose flush artifacts accumulate as on-screen "花花" that
+    // only a full repaint clears. A still mascot keeps the screen clean with no
+    // periodic full-refresh needed.
+    (void)pet;
+    (void)pet_opa_cb;
+}
+
+// Smoothly animate an arc to a value — but ONLY for small deltas. A large sweep
+// invalidates the arc's huge bounding box every frame (the full-screen flush
+// that stalls this display), so snap instead.
+static void arc_anim_exec(void *obj, int32_t v) { lv_arc_set_value((lv_obj_t *)obj, v); }
+
+static void arc_anim_to(lv_obj_t *arc, int32_t target) {
+    // Direct set — no animation. Continuous arc animation drives repeated partial
+    // redraws which accumulate flush artifacts ("花花") on this hold-type AMOLED.
+    if (arc) lv_arc_set_value(arc, target);
+    (void)arc_anim_exec;
+}
+
+// Color by usage level: green < 60% < amber < 85% <= red.
+static lv_color_t usage_color(int pct) {
+    return (pct >= 85) ? CLR_ERROR : (pct >= 60) ? CLR_WARNING : CLR_SUCCESS;
+}
+
 // ── Overview page ──
 
 static void create_overview_tile() {
@@ -350,17 +553,53 @@ static void create_overview_tile() {
     lv_obj_remove_flag(ov_arc_main, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_color(ov_arc_main, CLR_BORDER, LV_PART_MAIN);
     lv_obj_set_style_arc_color(ov_arc_main, CLR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(ov_arc_main, ARC_OUTER_WIDTH, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ov_arc_main, ARC_OUTER_WIDTH, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ov_arc_main, 12, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ov_arc_main, 12, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(ov_arc_main, true, LV_PART_INDICATOR);
     lv_obj_center(ov_arc_main);
 
-    // Tool name (label) — purely visual
+    // Inner ring = 5h window (the tighter, more urgent limit). Concentric,
+    // slightly smaller; colored by severity in ui_update_status.
+    ov_arc_5h = lv_arc_create(tile_overview);
+    lv_obj_set_size(ov_arc_5h, 316, 316);   // r≈158 vs outer r≈200 → ~30px gap, clearly separate
+    lv_arc_set_rotation(ov_arc_5h, 135);
+    lv_arc_set_bg_angles(ov_arc_5h, 0, 270);
+    lv_arc_set_range(ov_arc_5h, 0, 100);
+    lv_arc_set_value(ov_arc_5h, 0);
+    lv_obj_remove_flag(ov_arc_5h, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ov_arc_5h, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_arc_color(ov_arc_5h, CLR_SURFACE_ALT, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ov_arc_5h, CLR_SUCCESS, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ov_arc_5h, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ov_arc_5h, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(ov_arc_5h, true, LV_PART_INDICATOR);
+    lv_obj_center(ov_arc_5h);
+
+    // Top readouts — the two ring windows, big and colored by usage level.
+    // "7d" (outer ring) sits above "5h" (inner ring), mirroring the ring order.
+    ov_rd_7d = lv_label_create(tile_overview);
+    lv_label_set_text(ov_rd_7d, "");
+    lv_obj_set_style_text_font(ov_rd_7d, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(ov_rd_7d, CLR_TEXT_MUTED, 0);
+    lv_obj_align(ov_rd_7d, LV_ALIGN_CENTER, 0, -100);   // center clear zone (inside both rings)
+
+    ov_rd_5h = lv_label_create(tile_overview);
+    lv_label_set_text(ov_rd_5h, "");
+    lv_obj_set_style_text_font(ov_rd_5h, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(ov_rd_5h, CLR_TEXT_MUTED, 0);
+    lv_obj_align(ov_rd_5h, LV_ALIGN_CENTER, 0, -64);
+
+    // Claude Code pixel mascot — centered, static (no animation → no flush ghosts).
+    ov_spark = build_claude_pet(tile_overview, 6);   // 14×9 grid → 84×54 px
+    lv_obj_align(ov_spark, LV_ALIGN_CENTER, 0, -8);
+    start_spark_breath(ov_spark);
+
+    // Tool name (ASCII → large Montserrat)
     ov_lbl_tool = lv_label_create(tile_overview);
     lv_label_set_text(ov_lbl_tool, "Idle");
     lv_obj_set_style_text_color(ov_lbl_tool, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_text_font(ov_lbl_tool, FONT_TITLE, 0);
-    lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, -60);
+    lv_obj_set_style_text_font(ov_lbl_tool, &lv_font_montserrat_28, 0);
+    lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, 44);
 
     // Big invisible tap target over the entire top half of the tile — taps cycle tools.
     // Sits ABOVE all other widgets, but doesn't block tileview drag (we forward release
@@ -381,33 +620,42 @@ static void create_overview_tile() {
         ui_cycle_tool();
     }, LV_EVENT_PRESSED, nullptr);
 
-    // Status dot + text
-    ov_lbl_status = lv_label_create(tile_overview);
-    lv_label_set_text(ov_lbl_status, "No active tools");
-    lv_obj_set_style_text_color(ov_lbl_status, CLR_TEXT_MUTED, 0);
-    lv_obj_set_style_text_font(ov_lbl_status, FONT_SMALL, 0);
-    lv_obj_align(ov_lbl_status, LV_ALIGN_CENTER, 0, -30);
-
-    // Model
+    // Model + plan (secondary line under the tool name)
     ov_lbl_model = lv_label_create(tile_overview);
     lv_label_set_text(ov_lbl_model, "");
     lv_obj_set_style_text_color(ov_lbl_model, CLR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(ov_lbl_model, FONT_LARGE, 0);
-    lv_obj_align(ov_lbl_model, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_set_style_text_font(ov_lbl_model, &lv_font_montserrat_16, 0);
+    lv_obj_align(ov_lbl_model, LV_ALIGN_CENTER, 0, 72);
 
-    // Tokens
-    ov_lbl_tokens = lv_label_create(tile_overview);
-    lv_label_set_text(ov_lbl_tokens, "");
-    lv_obj_set_style_text_color(ov_lbl_tokens, CLR_ACCENT, 0);
-    lv_obj_set_style_text_font(ov_lbl_tokens, FONT_BODY, 0);
-    lv_obj_align(ov_lbl_tokens, LV_ALIGN_CENTER, 0, 45);
+    // Task-state badge (+ running session count)
+    ov_lbl_status = lv_label_create(tile_overview);
+    lv_label_set_text(ov_lbl_status, "");
+    lv_obj_set_style_text_color(ov_lbl_status, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(ov_lbl_status, &lv_font_montserrat_16, 0);
+    lv_obj_align(ov_lbl_status, LV_ALIGN_CENTER, 0, 98);
 
-    // Cost
-    ov_lbl_cost = lv_label_create(tile_overview);
-    lv_label_set_text(ov_lbl_cost, "");
-    lv_obj_set_style_text_color(ov_lbl_cost, CLR_TEXT_MUTED, 0);
-    lv_obj_set_style_text_font(ov_lbl_cost, FONT_SMALL, 0);
-    lv_obj_align(ov_lbl_cost, LV_ALIGN_CENTER, 0, 70);
+    // Mini-tool dot row: one colored dot per active AI tool
+    mini_tools_row = lv_obj_create(tile_overview);
+    lv_obj_set_size(mini_tools_row, 200, 20);
+    lv_obj_align(mini_tools_row, LV_ALIGN_CENTER, 0, 126);
+    lv_obj_set_style_bg_opa(mini_tools_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(mini_tools_row, 0, 0);
+    lv_obj_set_style_pad_all(mini_tools_row, 0, 0);
+    lv_obj_set_flex_flow(mini_tools_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(mini_tools_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(mini_tools_row, 10, 0);
+    lv_obj_remove_flag(mini_tools_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(mini_tools_row, LV_OBJ_FLAG_SCROLLABLE);
+    for (int i = 0; i < 6; i++) {
+        mini_tool_dots[i] = lv_obj_create(mini_tools_row);
+        lv_obj_set_size(mini_tool_dots[i], 12, 12);
+        lv_obj_set_style_radius(mini_tool_dots[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(mini_tool_dots[i], 0, 0);
+        lv_obj_set_style_bg_color(mini_tool_dots[i], CLR_TEXT_MUTED, 0);
+        lv_obj_set_style_pad_all(mini_tool_dots[i], 0, 0);
+        lv_obj_add_flag(mini_tool_dots[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(mini_tool_dots[i], LV_OBJ_FLAG_CLICKABLE);
+    }
 }
 
 // ── Tool detail page ──
@@ -562,7 +810,6 @@ void ui_update_status(JsonObject &payload) {
     }
 
     // De-dupe: hash the payload, skip if unchanged from last call
-    static uint32_t lastHash = 0;
     uint32_t h = 5381;
     const char *at = payload["active_tool"] | "";
     for (const char *p = at; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
@@ -572,8 +819,14 @@ void ui_update_status(JsonObject &payload) {
             JsonObject td = kv.value().as<JsonObject>();
             const char *tk = td["tokens_display"] | "";
             const char *ck = td["cost_display"] | "";
+            const char *task = td["task"] | "";
+            const char *u5 = td["u5"] | "";
+            const char *u7 = td["u7"] | "";
             for (const char *p = tk; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
             for (const char *p = ck; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
+            for (const char *p = task; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
+            for (const char *p = u5; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
+            for (const char *p = u7; *p; p++) h = ((h << 5) + h) + (uint32_t)*p;
             h = ((h << 5) + h) + (uint32_t)(td["usage_pct"] | 0);
         }
     }
@@ -582,8 +835,9 @@ void ui_update_status(JsonObject &payload) {
         h = ((h << 5) + h) + (uint32_t)(s["cpu_pct"] | 0);
         h = ((h << 5) + h) + (uint32_t)(s["mem_pct"] | 0);
     }
-    if (h == lastHash) return;  // nothing changed, skip redraw
-    lastHash = h;
+    if (h == g_status_hash && !g_force_status_redraw) return;  // nothing changed, skip redraw
+    g_status_hash = h;
+    g_force_status_redraw = false;
 
     const char *activeTool = payload["active_tool"];
 
@@ -595,6 +849,10 @@ void ui_update_status(JsonObject &payload) {
         strlcpy(available_tools[available_tools_count], kv.key().c_str(), 24);
         available_tools_count++;
     }
+
+    // Update mini-tool dot row: one dot per active tool, colored by tool theme,
+    // larger if it's the currently selected one.
+    update_mini_dots();
     // If selected_tool not in the list, fall back to active_tool
     bool selected_valid = false;
     for (int i = 0; i < available_tools_count; i++) {
@@ -614,32 +872,60 @@ void ui_update_status(JsonObject &payload) {
 
         current_tool_color = theme_tool_color(activeTool);
 
+        // 5h window % + its severity color (shared by the inner ring and the
+        // color-coded "5h" label below).
+        int p5 = tool["p5"] | 0;
+        lv_color_t c5 = (p5 >= 85) ? CLR_ERROR : (p5 >= 60) ? CLR_WARNING : CLR_SUCCESS;
+
         // Display name mapping
-        const char *displayName = activeTool;
-        if (strcmp(activeTool, "claude_code") == 0) displayName = "Claude Code";
-        else if (strcmp(activeTool, "codex") == 0) displayName = "Codex";
-        else if (strcmp(activeTool, "gemini_cli") == 0) displayName = "Gemini CLI";
+        const char *displayName = tool_display_name(activeTool);
 
         lv_label_set_text(ov_lbl_tool, displayName);
         lv_obj_set_style_text_color(ov_lbl_tool, current_tool_color, 0);
 
+        // Spark: recolor to the active tool, ensure it's visible.
+        spark_set_color(ov_spark, current_tool_color);
+        if (ov_spark) lv_obj_remove_flag(ov_spark, LV_OBJ_FLAG_HIDDEN);
+
+        // Task-state badge: Working / Waiting / Idle + how many CLI sessions run.
+        const char *taskState = tool["task"] | "";
         const char *status = tool["status"] | "unknown";
-        lv_label_set_text_fmt(ov_lbl_status, "%s %s", (strcmp(status, "active") == 0) ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE, status);
-        lv_obj_set_style_text_color(ov_lbl_status, (strcmp(status, "active") == 0) ? CLR_SUCCESS : CLR_TEXT_MUTED, 0);
+        int tasks = tool["tasks"] | 0;
+        const char *sym; const char *word; lv_color_t badgeCol;
+        if (strcmp(taskState, "working") == 0)      { sym = LV_SYMBOL_PLAY;  word = "Working"; badgeCol = CLR_SUCCESS; }
+        else if (strcmp(taskState, "waiting") == 0) { sym = LV_SYMBOL_OK;    word = "Waiting"; badgeCol = CLR_WARNING; }
+        else if (strcmp(taskState, "idle") == 0)    { sym = LV_SYMBOL_PAUSE; word = "Idle";    badgeCol = CLR_TEXT_MUTED; }
+        else {
+            bool act = (strcmp(status, "active") == 0);
+            sym = act ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE;
+            word = act ? "Active" : "Idle";
+            badgeCol = act ? CLR_SUCCESS : CLR_TEXT_MUTED;
+        }
+        if (tasks > 1)
+            lv_label_set_text_fmt(ov_lbl_status, "%s %s    %d running", sym, word, tasks);
+        else
+            lv_label_set_text_fmt(ov_lbl_status, "%s %s", sym, word);
+        lv_obj_set_style_text_color(ov_lbl_status, badgeCol, 0);
 
         const char *model = tool["model"] | "";
         lv_label_set_text(ov_lbl_model, model);
 
-        const char *tokensDisp = tool["tokens_display"] | "";
-        lv_label_set_text(ov_lbl_tokens, tokensDisp);
+        // Rings show REMAINING quota (fuel-gauge): full = plenty left, empty =
+        // nearly out. Numbers are the remaining %. Color still by severity
+        // (little left = red), so low fuel reads as urgent.
+        int usagePct = tool["usage_pct"] | 0;   // 7d used
+        int rem7 = 100 - usagePct;              // 7d remaining
+        int rem5 = 100 - p5;                    // 5h remaining
+        lv_color_t c7 = usage_color(usagePct);  // by used → low-remaining = red
+        lv_label_set_text_fmt(ov_rd_7d, "7d  %d%%", rem7);
+        lv_obj_set_style_text_color(ov_rd_7d, c7, 0);
+        lv_label_set_text_fmt(ov_rd_5h, "5h  %d%%", rem5);
+        lv_obj_set_style_text_color(ov_rd_5h, c5, 0);
 
-        const char *costDisp = tool["cost_display"] | "";
-        lv_label_set_text(ov_lbl_cost, costDisp);
-
-        int usagePct = tool["usage_pct"] | 0;
-        lv_arc_set_value(ov_arc_main, usagePct);
-        lv_obj_set_style_arc_color(ov_arc_main, current_tool_color, LV_PART_INDICATOR);
-        lv_obj_set_style_text_color(ov_lbl_tokens, current_tool_color, 0);
+        arc_anim_to(ov_arc_main, rem7);
+        lv_obj_set_style_arc_color(ov_arc_main, c7, LV_PART_INDICATOR);
+        arc_anim_to(ov_arc_5h, rem5);
+        lv_obj_set_style_arc_color(ov_arc_5h, c5, LV_PART_INDICATOR);
 
         // -- Update detail page --
         if (td_lbl_title) {
@@ -647,7 +933,7 @@ void ui_update_status(JsonObject &payload) {
             lv_obj_set_style_text_color(td_lbl_title, current_tool_color, 0);
         }
         if (td_arc_usage) {
-            lv_arc_set_value(td_arc_usage, usagePct);
+            arc_anim_to(td_arc_usage, usagePct);
             lv_obj_set_style_arc_color(td_arc_usage, current_tool_color, LV_PART_INDICATOR);
         }
         if (td_lbl_usage_pct) lv_label_set_text_fmt(td_lbl_usage_pct, "%d%%", usagePct);
@@ -670,9 +956,11 @@ void ui_update_status(JsonObject &payload) {
         lv_label_set_text(ov_lbl_status, "No active tools");
         lv_obj_set_style_text_color(ov_lbl_status, CLR_TEXT_MUTED, 0);
         lv_label_set_text(ov_lbl_model, "");
-        lv_label_set_text(ov_lbl_tokens, "");
-        lv_label_set_text(ov_lbl_cost, "");
+        if (ov_rd_7d) lv_label_set_text(ov_rd_7d, "");
+        if (ov_rd_5h) lv_label_set_text(ov_rd_5h, "");
+        if (ov_spark) lv_obj_add_flag(ov_spark, LV_OBJ_FLAG_HIDDEN);
         lv_arc_set_value(ov_arc_main, 0);
+        if (ov_arc_5h) lv_arc_set_value(ov_arc_5h, 0);
 
         if (td_lbl_title) lv_label_set_text(td_lbl_title, "No Tool Active");
         if (td_arc_usage) lv_arc_set_value(td_arc_usage, 0);
@@ -701,6 +989,13 @@ void ui_update_status(JsonObject &payload) {
         int netDown = sys["net_down_kbps"] | 0;
         lv_label_set_text_fmt(sys_lbl_net, LV_SYMBOL_UPLOAD " %d KB/s    " LV_SYMBOL_DOWNLOAD " %d KB/s", netUp, netDown);
     }
+
+    // Repaint the whole screen in the SAME render pass that applied these
+    // changes. On this hold-type AMOLED a bare partial redraw leaves stale
+    // pixels ("花花"); doing a full invalidate right after the (infrequent)
+    // content change overwrites them before they're ever shown — clean, and no
+    // blind periodic flash since the screen is otherwise static.
+    lv_obj_invalidate(lv_screen_active());
 }
 
 void ui_set_page(int page_index) {

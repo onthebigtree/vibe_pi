@@ -10,6 +10,12 @@ static char errorLog[ERROR_LOG_MAX_ENTRIES][48];
 static uint8_t errorLogHead = 0;
 static uint8_t errorLogCount = 0;
 
+// RAM mirror of the crash NVS keys. health_get_data() runs every 30s on the
+// main loop; reading these from RAM avoids an NVS flash transaction (and the
+// stall it can cause) on the hot path. Kept in sync on record/clear.
+static uint32_t cachedCrashCount = 0;
+static char cachedLastCrash[48] = "";
+
 void health_init() {
     Preferences prefs;
     prefs.begin(NVS_NAMESPACE, false);
@@ -41,6 +47,10 @@ void health_init() {
         prefs.putString(NVS_LAST_CRASH, "");
         // Don't set safeMode — allow normal boot after clearing
     }
+
+    // Prime the RAM cache from the (possibly just-cleared) NVS state.
+    cachedCrashCount = prefs.getUInt(NVS_CRASH_COUNT, 0);
+    strlcpy(cachedLastCrash, prefs.getString(NVS_LAST_CRASH, "").c_str(), sizeof(cachedLastCrash));
 
     prefs.end();
 }
@@ -95,6 +105,8 @@ void health_record_crash(const char *reason) {
     prefs.putUInt(NVS_CRASH_COUNT, cnt);
     prefs.putString(NVS_LAST_CRASH, reason);
     prefs.end();
+    cachedCrashCount = cnt;
+    strlcpy(cachedLastCrash, reason, sizeof(cachedLastCrash));
 }
 
 void health_clear_crash_count() {
@@ -103,6 +115,8 @@ void health_clear_crash_count() {
     prefs.putUInt(NVS_CRASH_COUNT, 0);
     prefs.putString(NVS_LAST_CRASH, "");
     prefs.end();
+    cachedCrashCount = 0;
+    cachedLastCrash[0] = '\0';
     safeMode = false;
 }
 
@@ -122,11 +136,9 @@ HealthData health_get_data() {
     d.safe_mode = safeMode;
     d.error_count = errorLogCount;
 
-    Preferences prefs;
-    prefs.begin(NVS_NAMESPACE, true);
-    d.crash_count = prefs.getUInt(NVS_CRASH_COUNT, 0);
-    strlcpy(d.last_crash_reason, prefs.getString(NVS_LAST_CRASH, "").c_str(), sizeof(d.last_crash_reason));
-    prefs.end();
+    // Read from the RAM mirror — no NVS access on the 30s report hot path.
+    d.crash_count = cachedCrashCount;
+    strlcpy(d.last_crash_reason, cachedLastCrash, sizeof(d.last_crash_reason));
 
     return d;
 }
@@ -147,6 +159,16 @@ void health_build_report(JsonDocument &doc, const char *device_id) {
     p["crash_count"]       = d.crash_count;
     p["last_crash_reason"] = d.last_crash_reason;
     p["safe_mode"]         = d.safe_mode;
+    // Battery / power IC info
+    extern class AXP2101 g_axp;
+    extern uint16_t axp_voltage();
+    extern uint8_t axp_percent();
+    extern bool axp_charging();
+    extern bool axp_vbus();
+    p["battery_mv"]        = axp_voltage();
+    p["battery_pct"]       = axp_percent();
+    p["charging"]          = axp_charging();
+    p["vbus"]              = axp_vbus();
 
     JsonArray errors = p["errors"].to<JsonArray>();
     uint8_t start = (errorLogCount >= ERROR_LOG_MAX_ENTRIES)

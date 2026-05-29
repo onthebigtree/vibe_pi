@@ -71,6 +71,11 @@ void display_init() {
         lv_indev_set_type(lv_indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(lv_indev, touch_read_cb);
         lv_indev_set_display(lv_indev, lv_disp);
+        // Lower the swipe distance threshold from the 50px default to 35px so
+        // page/tool gestures feel more responsive on the 466px round screen.
+        // Not lower than this: the top-half tap-to-cycle target shares the same
+        // area, and an over-sensitive gesture would trigger accidental cycling.
+        lv_indev_set_gesture_min_distance(lv_indev, 35);
         Serial.println("[Display] Touch registered with LVGL");
     }
 

@@ -156,7 +156,10 @@ void ws_client_init(const char *host, uint16_t port) {
         Serial.printf("[WS] Connecting to %s:%d\n", host, port);
     }
     ws.onEvent(on_ws_event);
-    ws.setReconnectInterval(0);
+    // Backoff between reconnect attempts. 0 would let ws.loop() hammer TCP
+    // connect ~30x/sec when the host is absent, burning CPU and flooding the
+    // host's TCP backlog with resets. 1s is responsive yet polite.
+    ws.setReconnectInterval(WS_RECONNECT_BASE_MS);
     // Respond to WebSocket-protocol PING control frames every 15s; reconnect after 2 missed pongs
     ws.enableHeartbeat(15000, 3000, 2);
 }

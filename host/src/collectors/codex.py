@@ -1,12 +1,13 @@
 """OpenAI Codex CLI status collector — reads ~/.codex/sessions/<year>/<month>/<day>/*.jsonl."""
 
+import asyncio
 import json
 import re
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
+from . import process_cache
 from .base import BaseCollector
 
 
@@ -25,37 +26,24 @@ class CodexCollector(BaseCollector):
 
     def __init__(self):
         self._codex_dir = Path.home() / ".codex"
-        self._last_check = 0.0
-        self._cached_running = False
         self._token_re = re.compile(rb'"total_tokens":\s*(\d+)')
         self._input_re = re.compile(rb'"input_tokens":\s*(\d+)')
         self._output_re = re.compile(rb'"output_tokens":\s*(\d+)')
         self._model_re = re.compile(rb'"model":\s*"([^"]+)"')
 
     async def collect(self) -> dict[str, Any] | None:
-        is_running = self._is_running()
+        running = await process_cache.any_running("codex")
         result = {
-            "status": "active" if is_running else "inactive",
+            "status": "active" if running else "inactive",
             "model": "", "tokens_used": 0, "tokens_display": "0",
             "cost_usd": 0.0, "cost_display": "$0.00", "usage_pct": 0,
             "session_count": 0, "current_task": "", "uptime_min": 0,
         }
-        session = self._find_latest_session()
+        # Filesystem walk + file read + regex — keep it off the event loop.
+        session = await asyncio.to_thread(self._find_latest_session)
         if session:
             result.update(session)
         return result
-
-    def _is_running(self) -> bool:
-        now = time.time()
-        if now - self._last_check < 3.0:
-            return self._cached_running
-        self._last_check = now
-        try:
-            r = subprocess.run(["pgrep", "-fl", "codex"], capture_output=True, text=True, timeout=2)
-            self._cached_running = r.returncode == 0
-        except Exception:
-            self._cached_running = False
-        return self._cached_running
 
     def _find_latest_session(self) -> dict[str, Any] | None:
         sessions_dir = self._codex_dir / "sessions"

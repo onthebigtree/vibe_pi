@@ -18,6 +18,8 @@
 #include "ui/oobe_flow.h"
 #include "ui/notification.h"
 #include "network/serial_config.h"
+#include "../drivers/power/axp2101.h"
+#include "../boards/waveshare_175_amoled/board_def.h"
 
 // ── Application State Machine ──
 enum class AppState {
@@ -109,6 +111,8 @@ void setup() {
 
     display_init();
     ui_init();
+    // Power management IC — shares I2C with touch (SDA=15, SCL=14 on Waveshare)
+    g_axp.begin(BSP_TOUCH_SDA, BSP_TOUCH_SCL);
     ui_show_boot();
     lv_timer_handler();  // render boot splash once before state machine takes over
 
@@ -123,6 +127,7 @@ void setup() {
 static uint32_t loopCount = 0;
 
 void loop() {
+    unsigned long loopStart = millis();
     loopCount++;
     watchdog_feed();
     handle_button();
@@ -367,6 +372,13 @@ void loop() {
 
     lv_timer_handler();
 
+    // Refresh battery icon every 5s
+    static unsigned long lastBattery = 0;
+    if (millis() - lastBattery > 5000) {
+        lastBattery = millis();
+        ui_update_battery();
+    }
+
     // Heartbeat: prove main loop is alive, report state + free heap + touch cb count
     static unsigned long lastHeartbeat = 0;
     if (millis() - lastHeartbeat > 3000) {
@@ -379,5 +391,9 @@ void loop() {
                      display_get_flush_count());
     }
 
-    delay(5);
+    // Dynamic throttle: target a ~5ms loop period, but only sleep the time we
+    // haven't already spent. When a frame did real work we yield immediately so
+    // LVGL/touch are serviced sooner; when idle we cap the busy-spin at ~200Hz.
+    unsigned long spent = millis() - loopStart;
+    if (spent < 5) delay(5 - spent);
 }

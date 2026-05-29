@@ -67,6 +67,8 @@
 #define OTA_HTTP_TIMEOUT_MS    30000
 #define OTA_CHUNK_SIZE          4096
 #define OTA_MAX_RETRIES            3
+#define OTA_DOWNLOAD_TIMEOUT_MS 300000  // 5 min hard cap on whole download
+#define OTA_STALL_TIMEOUT_MS     30000  // abort if 30s pass with no new bytes
 
 // ── NVS Namespace & Keys ──
 #define NVS_NAMESPACE      "vibepi"

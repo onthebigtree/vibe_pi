@@ -14,6 +14,21 @@ static unsigned long lastActivity = 0;
 static uint8_t currentBrightness = DEFAULT_BRIGHTNESS;
 static bool imuAvailable = false;
 
+// DIM brightness scales with the user's configured ACTIVE brightness, so a user
+// who prefers a bright screen isn't slammed down to a fixed 20/255 dim level.
+static uint8_t dim_brightness() {
+    uint8_t active = settings_get().brightness;
+    uint8_t dim = (uint8_t)((uint16_t)active * 25 / 100);
+    return dim < 5 ? 5 : dim;
+}
+
+// MAX_MODEM sleeps the WiFi radio between DTIM beacons when the screen is off —
+// a large idle-power saving. Keepalive pings still get through. MIN_MODEM is the
+// balanced mode used while active. No-ops harmlessly if WiFi isn't started.
+static void wifi_set_power_save(bool save) {
+    esp_wifi_set_ps(save ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
+}
+
 #define QMI8658_ADDR    0x6B
 #define QMI8658_WHO_AM_I 0x00
 #define QMI8658_CTRL1    0x02
@@ -79,11 +94,12 @@ void power_loop() {
             if (idle > s.sleep_timeout_ms) {
                 currentState = PowerState::SCREEN_OFF;
                 display_set_brightness(0);
+                wifi_set_power_save(true);
                 ui_sleep();
                 Serial.println("[Power] → SCREEN_OFF");
             } else if (idle > DIM_TIMEOUT_MS) {
                 currentState = PowerState::DIM;
-                display_set_brightness(DIM_BRIGHTNESS);
+                display_set_brightness(dim_brightness());
                 Serial.println("[Power] → DIM");
             }
             break;
@@ -92,6 +108,7 @@ void power_loop() {
             if (idle > s.sleep_timeout_ms) {
                 currentState = PowerState::SCREEN_OFF;
                 display_set_brightness(0);
+                wifi_set_power_save(true);
                 ui_sleep();
                 Serial.println("[Power] → SCREEN_OFF");
             }
@@ -108,8 +125,15 @@ void power_loop() {
                 esp_sleep_enable_timer_wakeup(5ULL * 60 * 1000 * 1000);
                 esp_deep_sleep_start();  // never returns; chip resets on wake
             }
-            if (power_check_imu_wake()) {
-                power_register_activity();
+            // Throttle the wrist-raise check to ~20Hz. Polling the QMI8658 over
+            // I2C every loop (~200Hz) needlessly saturates the bus it shares
+            // with the touch + battery ICs while the screen is off.
+            {
+                static unsigned long lastImuCheck = 0;
+                if (now - lastImuCheck >= 50) {
+                    lastImuCheck = now;
+                    if (power_check_imu_wake()) power_register_activity();
+                }
             }
             break;
 
@@ -136,6 +160,7 @@ void power_register_activity() {
         currentBrightness = settings_get().brightness;
         display_set_brightness(currentBrightness);
         if (prev == PowerState::SCREEN_OFF || prev == PowerState::DEEP_SLEEP) {
+            wifi_set_power_save(false);  // back to full radio perf when active
             ui_wake();
         }
         Serial.println("[Power] → ACTIVE (wake)");
@@ -149,14 +174,16 @@ void power_force_state(PowerState state) {
     switch (state) {
         case PowerState::ACTIVE:
             display_set_brightness(settings_get().brightness);
+            wifi_set_power_save(false);
             ui_wake();
             break;
         case PowerState::DIM:
-            display_set_brightness(DIM_BRIGHTNESS);
+            display_set_brightness(dim_brightness());
             break;
         case PowerState::SCREEN_OFF:
         case PowerState::DEEP_SLEEP:
             display_set_brightness(0);
+            wifi_set_power_save(true);
             ui_sleep();
             break;
     }
