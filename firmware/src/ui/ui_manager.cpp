@@ -534,9 +534,12 @@ static void arc_anim_to(lv_obj_t *arc, int32_t target) {
     (void)arc_anim_exec;
 }
 
-// Color by usage level: green < 60% < amber < 85% <= red.
-static lv_color_t usage_color(int pct) {
-    return (pct >= 85) ? CLR_ERROR : (pct >= 60) ? CLR_WARNING : CLR_SUCCESS;
+// Continuous fuel gauge color by REMAINING %: smooth red(0)→amber→green(100),
+// so every percentage point has a distinct hue (no threshold steps).
+static lv_color_t fuel_color(int rem) {
+    if (rem < 0) rem = 0; else if (rem > 100) rem = 100;
+    uint16_t h = (uint16_t)(rem * 120 / 100);   // 0°=red (empty) … 120°=green (full)
+    return lv_color_hsv_to_rgb(h, 85, 100);
 }
 
 // ── Overview page ──
@@ -553,15 +556,15 @@ static void create_overview_tile() {
     lv_obj_remove_flag(ov_arc_main, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_color(ov_arc_main, CLR_BORDER, LV_PART_MAIN);
     lv_obj_set_style_arc_color(ov_arc_main, CLR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(ov_arc_main, 12, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ov_arc_main, 12, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ov_arc_main, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ov_arc_main, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(ov_arc_main, true, LV_PART_INDICATOR);
     lv_obj_center(ov_arc_main);
 
     // Inner ring = 5h window (the tighter, more urgent limit). Concentric,
     // slightly smaller; colored by severity in ui_update_status.
     ov_arc_5h = lv_arc_create(tile_overview);
-    lv_obj_set_size(ov_arc_5h, 316, 316);   // r≈158 vs outer r≈200 → ~30px gap, clearly separate
+    lv_obj_set_size(ov_arc_5h, 300, 300);   // r≈150 vs outer r≈200 → ~50px band for the 7d readout
     lv_arc_set_rotation(ov_arc_5h, 135);
     lv_arc_set_bg_angles(ov_arc_5h, 0, 270);
     lv_arc_set_range(ov_arc_5h, 0, 100);
@@ -577,21 +580,24 @@ static void create_overview_tile() {
 
     // Top readouts — the two ring windows, big and colored by usage level.
     // "7d" (outer ring) sits above "5h" (inner ring), mirroring the ring order.
+    // 7d readout NESTED in the outer ring's band (between the two arcs, top) so
+    // it visually belongs to the outer ring. 5h readout sits just inside the
+    // inner ring — each number maps to its own ring.
     ov_rd_7d = lv_label_create(tile_overview);
     lv_label_set_text(ov_rd_7d, "");
-    lv_obj_set_style_text_font(ov_rd_7d, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(ov_rd_7d, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(ov_rd_7d, CLR_TEXT_MUTED, 0);
-    lv_obj_align(ov_rd_7d, LV_ALIGN_CENTER, 0, -100);   // center clear zone (inside both rings)
+    lv_obj_align(ov_rd_7d, LV_ALIGN_CENTER, 0, -174);   // outer-ring band (7d)
 
     ov_rd_5h = lv_label_create(tile_overview);
     lv_label_set_text(ov_rd_5h, "");
-    lv_obj_set_style_text_font(ov_rd_5h, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(ov_rd_5h, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(ov_rd_5h, CLR_TEXT_MUTED, 0);
-    lv_obj_align(ov_rd_5h, LV_ALIGN_CENTER, 0, -64);
+    lv_obj_align(ov_rd_5h, LV_ALIGN_CENTER, 0, -120);   // just inside inner ring (5h)
 
     // Claude Code pixel mascot — centered, static (no animation → no flush ghosts).
     ov_spark = build_claude_pet(tile_overview, 6);   // 14×9 grid → 84×54 px
-    lv_obj_align(ov_spark, LV_ALIGN_CENTER, 0, -8);
+    lv_obj_align(ov_spark, LV_ALIGN_CENTER, 0, -48);
     start_spark_breath(ov_spark);
 
     // Tool name (ASCII → large Montserrat)
@@ -599,7 +605,7 @@ static void create_overview_tile() {
     lv_label_set_text(ov_lbl_tool, "Idle");
     lv_obj_set_style_text_color(ov_lbl_tool, CLR_TEXT_PRIMARY, 0);
     lv_obj_set_style_text_font(ov_lbl_tool, &lv_font_montserrat_28, 0);
-    lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, 44);
+    lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, 22);
 
     // Big invisible tap target over the entire top half of the tile — taps cycle tools.
     // Sits ABOVE all other widgets, but doesn't block tileview drag (we forward release
@@ -625,19 +631,19 @@ static void create_overview_tile() {
     lv_label_set_text(ov_lbl_model, "");
     lv_obj_set_style_text_color(ov_lbl_model, CLR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(ov_lbl_model, &lv_font_montserrat_16, 0);
-    lv_obj_align(ov_lbl_model, LV_ALIGN_CENTER, 0, 72);
+    lv_obj_align(ov_lbl_model, LV_ALIGN_CENTER, 0, 50);
 
     // Task-state badge (+ running session count)
     ov_lbl_status = lv_label_create(tile_overview);
     lv_label_set_text(ov_lbl_status, "");
     lv_obj_set_style_text_color(ov_lbl_status, CLR_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(ov_lbl_status, &lv_font_montserrat_16, 0);
-    lv_obj_align(ov_lbl_status, LV_ALIGN_CENTER, 0, 98);
+    lv_obj_align(ov_lbl_status, LV_ALIGN_CENTER, 0, 78);
 
     // Mini-tool dot row: one colored dot per active AI tool
     mini_tools_row = lv_obj_create(tile_overview);
     lv_obj_set_size(mini_tools_row, 200, 20);
-    lv_obj_align(mini_tools_row, LV_ALIGN_CENTER, 0, 126);
+    lv_obj_align(mini_tools_row, LV_ALIGN_CENTER, 0, 104);
     lv_obj_set_style_bg_opa(mini_tools_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(mini_tools_row, 0, 0);
     lv_obj_set_style_pad_all(mini_tools_row, 0, 0);
@@ -875,7 +881,7 @@ void ui_update_status(JsonObject &payload) {
         // 5h window % + its severity color (shared by the inner ring and the
         // color-coded "5h" label below).
         int p5 = tool["p5"] | 0;
-        lv_color_t c5 = (p5 >= 85) ? CLR_ERROR : (p5 >= 60) ? CLR_WARNING : CLR_SUCCESS;
+        lv_color_t c5 = fuel_color(100 - p5);   // gradient by 5h remaining
 
         // Display name mapping
         const char *displayName = tool_display_name(activeTool);
@@ -916,7 +922,7 @@ void ui_update_status(JsonObject &payload) {
         int usagePct = tool["usage_pct"] | 0;   // 7d used
         int rem7 = 100 - usagePct;              // 7d remaining
         int rem5 = 100 - p5;                    // 5h remaining
-        lv_color_t c7 = usage_color(usagePct);  // by used → low-remaining = red
+        lv_color_t c7 = fuel_color(rem7);       // gradient by 7d remaining
         lv_label_set_text_fmt(ov_rd_7d, "7d  %d%%", rem7);
         lv_obj_set_style_text_color(ov_rd_7d, c7, 0);
         lv_label_set_text_fmt(ov_rd_5h, "5h  %d%%", rem5);
