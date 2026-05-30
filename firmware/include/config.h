@@ -1,7 +1,7 @@
 #pragma once
 
 // ── Firmware ──
-#define FW_VERSION        "0.2.0"
+#define FW_VERSION        "0.2.1"
 #define PROTOCOL_VERSION  2
 #define DEVICE_HARDWARE   "waveshare-esp32s3-amoled-175"
 

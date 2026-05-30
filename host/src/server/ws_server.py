@@ -26,6 +26,32 @@ logger = logging.getLogger("vibe-pi.server")
 
 HOST_VERSION = "0.2.0"
 
+# Requests from these peers are treated as local (no token needed).
+_LOCAL_PEERS = {"127.0.0.1", "::1", None}
+
+
+def _get_or_create_dashboard_token() -> str:
+    """Stable token gating remote (non-localhost) access to the dashboard/API.
+    Persisted 0600 so it survives restarts; the device's own /ws + /firmware
+    are never gated by this."""
+    import os
+    import secrets as _secrets
+    from pathlib import Path
+    p = Path.home() / ".config" / "vibe-pi" / "dashboard_token"
+    try:
+        if p.exists():
+            tok = p.read_text().strip()
+            if tok:
+                return tok
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tok = _secrets.token_urlsafe(24)
+        p.write_text(tok)
+        os.chmod(p, 0o600)
+        return tok
+    except OSError:
+        # Fall back to an ephemeral token if the FS isn't writable.
+        return _secrets.token_urlsafe(24)
+
 
 @dataclass
 class ConnectedDevice:
@@ -85,7 +111,35 @@ class StatusServer:
             ssl_ctx.load_cert_chain(ssl_cert, ssl_key)
             logger.info("WSS: TLS enabled")
 
-        app = web.Application()
+        # Auth: localhost is trusted (no friction for the operator on this
+        # machine); remote/LAN access to the dashboard + /api needs the token.
+        # /ws and /firmware are NEVER gated — the device depends on them.
+        import hmac as _hmac
+        self.auth_token = _get_or_create_dashboard_token()
+
+        @web.middleware
+        async def auth_mw(request: web.Request, handler):
+            path = request.path
+            if path == "/ws" or path.startswith("/firmware"):
+                return await handler(request)
+            if request.remote in _LOCAL_PEERS:
+                return await handler(request)
+            tok = request.headers.get("X-Vibe-Token") or request.query.get("token")
+            if not tok:
+                auth = request.headers.get("Authorization", "")
+                if auth.startswith("Basic "):
+                    import base64
+                    try:
+                        dec = base64.b64decode(auth[6:]).decode()
+                        tok = dec.split(":", 1)[1] if ":" in dec else dec
+                    except (ValueError, UnicodeDecodeError):
+                        tok = None
+            if tok and _hmac.compare_digest(tok, self.auth_token):
+                return await handler(request)
+            return web.Response(status=401, text="unauthorized: token required for remote access",
+                                headers={"WWW-Authenticate": 'Basic realm="Vibe Pi"'})
+
+        app = web.Application(middlewares=[auth_mw])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._dashboard_handler)
         app.router.add_get("/api/health", self._health_handler)
@@ -113,6 +167,8 @@ class StatusServer:
         scheme = "wss" if ssl_ctx else "ws"
         logger.info(f"Server on {scheme}://{self.host}:{self.port} "
                      f"(WS: /ws, Dashboard: /, API: /api/, OTA: /firmware/)")
+        logger.info(f"Dashboard: open http://localhost:{self.port}/ here (no login). "
+                    f"For LAN/remote access use token: {self.auth_token}")
 
     # ── WebSocket handler ──
 

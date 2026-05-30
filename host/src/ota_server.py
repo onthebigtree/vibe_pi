@@ -54,26 +54,46 @@ class OTAManager:
     def __init__(self, firmware_dir: Path | None = None):
         self.firmware_dir = firmware_dir or OTA_DIR
         self._releases: dict[str, FirmwareRelease] = {}
+        self._manifest_mtime = 0.0
         self._load_releases()
 
+    def _manifest_path(self) -> Path:
+        return self.firmware_dir / "releases.json"
+
     def _load_releases(self):
-        manifest = self.firmware_dir / "releases.json"
+        manifest = self._manifest_path()
         if not manifest.exists():
             return
         try:
+            self._manifest_mtime = manifest.stat().st_mtime
             data = json.loads(manifest.read_text())
+            self._releases = {}   # rebuild so removed versions drop out on reload
             for r in data.get("releases", []):
                 self._releases[r["version"]] = FirmwareRelease(**r)
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, OSError) as e:
             logger.warning(f"Failed to load OTA manifest: {e}")
 
+    def _reload_if_changed(self):
+        # `vibe-pi-host ota publish` runs in a SEPARATE process and rewrites the
+        # manifest. Re-read it when the file changes so a long-running host serves
+        # fresh metadata (matching SHA) without a restart — otherwise it would
+        # push a stale SHA and the device's verification would fail.
+        try:
+            m = self._manifest_path()
+            if m.exists() and m.stat().st_mtime > self._manifest_mtime:
+                self._load_releases()
+        except OSError:
+            pass
+
     def get_latest(self, channel: str = "stable") -> FirmwareRelease | None:
+        self._reload_if_changed()
         candidates = [r for r in self._releases.values() if r.channel == channel]
         if not candidates:
             return None
         return max(candidates, key=lambda r: r.version)
 
     def get_all(self) -> list[FirmwareRelease]:
+        self._reload_if_changed()
         return list(self._releases.values())
 
     def publish(self, firmware_path: Path, version: str, changelog: str = "",
@@ -125,6 +145,10 @@ class OTAManager:
             ]
         }
         manifest.write_text(json.dumps(data, indent=2))
+        try:
+            self._manifest_mtime = manifest.stat().st_mtime
+        except OSError:
+            pass
 
     def get_download_url(self, release: FirmwareRelease, host_ip: str, port: int = 8765) -> str:
         return f"http://{host_ip}:{port}/firmware/{release.filename}"

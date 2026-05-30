@@ -48,17 +48,13 @@ static lv_obj_t *create_item(lv_obj_t *list, const char *label, const char *valu
     return val;
 }
 
-static void on_brightness_up(lv_event_t *e) {
+// Single tappable row → cycle brightness 20→40→…→100→20 (wraps, so it can be
+// turned back down — the old +10-only handler got stuck at 100).
+static void on_brightness_cycle(lv_event_t *e) {
     DeviceSettings &s = settings_get();
-    s.brightness = min((int)s.brightness + 10, 100);
-    power_set_brightness(s.brightness);
-    settings_save();
-    lv_label_set_text_fmt(lbl_brightness_val, "%d%%", s.brightness);
-}
-
-static void on_brightness_down(lv_event_t *e) {
-    DeviceSettings &s = settings_get();
-    s.brightness = max((int)s.brightness - 10, 10);
+    int b = (int)s.brightness + 20;
+    if (b > 100) b = 20;
+    s.brightness = b;
     power_set_brightness(s.brightness);
     settings_save();
     lv_label_set_text_fmt(lbl_brightness_val, "%d%%", s.brightness);
@@ -108,7 +104,7 @@ lv_obj_t *settings_page_create(lv_obj_t *parent) {
     // Display section
     create_section(list, i18n(S_DISPLAY));
     lbl_brightness_val = create_item(list, i18n(S_BRIGHTNESS), "",
-                                     on_brightness_up, nullptr);
+                                     on_brightness_cycle, nullptr);
     lv_label_set_text_fmt(lbl_brightness_val, "%d%%", s.brightness);
 
     // System section
