@@ -219,10 +219,14 @@ class CodexCollector(BaseCollector):
     @staticmethod
     def _short_model(m: str) -> str:
         m = (m or "").lower()
-        if "gpt-5" in m: return "gpt-5"   # gpt-5, gpt-5.1-codex-max, etc.
-        if "o3" in m: return "o3"
-        if "o1" in m: return "o1"
-        if "gpt-4o" in m: return "gpt-4o"
+        if "gpt-5" in m:   # gpt-5, gpt-5.1-codex-max, etc.
+            return "gpt-5"
+        if "o3" in m:
+            return "o3"
+        if "o1" in m:
+            return "o1"
+        if "gpt-4o" in m:
+            return "gpt-4o"
         return m[:10] if m else ""
 
 
@@ -239,6 +243,8 @@ def _deep_get(obj, key):
 
 
 def _fmt(n: int) -> str:
-    if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
-    if n >= 1_000: return f"{n/1_000:.1f}K"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.1f}K"
     return str(int(n))
