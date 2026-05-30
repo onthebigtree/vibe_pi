@@ -319,12 +319,17 @@ void loop() {
             power_loop();
             if (serial_transport_last_status() > 0
                 && millis() - serial_transport_last_status() > STATUS_STALE_TIMEOUT_MS * 2) {
-                // USB host stopped sending status — drop the latch and fall back
-                // to WiFi/WS discovery instead of freezing on the last frame.
-                Serial.println("[App] Serial link stale — resetting transport");
+                // USB host stopped sending status (cable pulled / agent quit) —
+                // drop the latch and DEGRADE TO WIFI. Go through CONNECTING_WIFI,
+                // not RECONNECTING: when serial was active from boot the WiFi STA
+                // was never brought up, so RECONNECTING's ws_client_loop() would
+                // spin forever with no radio. CONNECTING_WIFI actually connects
+                // WiFi and rediscovers the host; its own serial short-circuit
+                // means re-plugging USB upgrades straight back.
+                Serial.println("[App] Serial link lost — degrading to WiFi");
                 serial_transport_reset();
-                set_state(AppState::RECONNECTING);
-                ui_show_reconnecting();
+                set_state(AppState::CONNECTING_WIFI);
+                ui_show_connecting_wifi();
                 break;
             }
         } else {
