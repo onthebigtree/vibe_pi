@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vibe Pi — your AI usage, on your desk</title>
+<meta name="description" content="A round AMOLED desk monitor that shows your Claude Code, Codex, Gemini, Cursor and Windsurf usage in real time. Local-first, no cloud." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ── Nav ───────────────────────────────────────────── -->
+<header class="nav">
+  <a class="brand" href="#top">
+    <span class="brand-dot"></span> Vibe&nbsp;Pi
+  </a>
+  <nav class="nav-links" id="navLinks">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#specs">Specs</a>
+    <a class="btn btn-ghost" href="#get">Get one</a>
+  </nav>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+</header>
+
+<!-- ── Hero ──────────────────────────────────────────── -->
+<main id="top">
+<section class="hero">
+  <div class="hero-copy reveal">
+    <p class="eyebrow">Desk companion for AI coding</p>
+    <h1>Know your AI usage<br />without breaking flow.</h1>
+    <p class="lede">
+      A 1.75″ round AMOLED that lives on your desk and shows how much of your
+      Claude&nbsp;Code, Codex, Gemini, Cursor and Windsurf budget is left —
+      the 5-hour and 7-day windows, at a glance. Local-first. No cloud account.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#get">Get one</a>
+      <a class="btn btn-ghost" href="#how">See how it works</a>
+    </div>
+    <p class="trust">USB or Wi-Fi · Runs on your machine · Your data never leaves your network</p>
+  </div>
+
+  <!-- Device face, rebuilt in SVG (the real dual-ring gauge) -->
+  <div class="hero-device reveal">
+    <div class="bezel">
+      <svg viewBox="0 0 466 466" class="face" role="img" aria-label="Vibe Pi display showing 79 percent of the 5-hour window remaining">
+        <defs>
+          <linearGradient id="ringFuel" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#C4CCDA" />
+            <stop offset="100%" stop-color="#8FA0B4" />
+          </linearGradient>
+        </defs>
+        <!-- track + 7d outer ring -->
+        <circle cx="233" cy="233" r="206" fill="none" stroke="#242730" stroke-width="8" />
+        <circle cx="233" cy="233" r="206" fill="none" stroke="#7A8A9A" stroke-width="8"
+                stroke-linecap="round" stroke-dasharray="1294" stroke-dashoffset="272"
+                transform="rotate(-90 233 233)" />
+        <!-- track + 5h inner ring -->
+        <circle cx="233" cy="233" r="178" fill="none" stroke="#242730" stroke-width="10" />
+        <circle cx="233" cy="233" r="178" fill="none" stroke="url(#ringFuel)" stroke-width="10"
+                stroke-linecap="round" stroke-dasharray="1118" stroke-dashoffset="235"
+                transform="rotate(-90 233 233)" />
+        <!-- 7d notch label at top -->
+        <text x="233" y="54" class="t-tag" text-anchor="middle">7d&nbsp;&nbsp;79%</text>
+        <!-- center stack -->
+        <text x="233" y="185" class="t-tool" text-anchor="middle">Claude Code</text>
+        <text x="233" y="258" class="t-hero" text-anchor="middle">79%</text>
+        <text x="233" y="300" class="t-sub" text-anchor="middle">5h left · resets 3:40</text>
+      </svg>
+    </div>
+    <div class="glow" aria-hidden="true"></div>
+  </div>
+</section>
+
+<!-- ── Tools ─────────────────────────────────────────── -->
+<section class="tools reveal" aria-label="Supported tools">
+  <span class="tools-label">Tracks</span>
+  <ul>
+    <li>Claude Code</li>
+    <li>Codex</li>
+    <li>Gemini CLI</li>
+    <li>Cursor</li>
+    <li>Windsurf</li>
+  </ul>
+</section>
+
+<!-- ── Features ──────────────────────────────────────── -->
+<section id="features" class="features">
+  <h2 class="reveal">Built to be glanced at.</h2>
+  <div class="grid">
+    <article class="card reveal">
+      <h3>Real budget, not guesswork</h3>
+      <p>Reads your actual session token usage and renders the 5-hour and 7-day
+         windows as two nested rings. The big number is what's left.</p>
+    </article>
+    <article class="card reveal">
+      <h3>Warns only when it matters</h3>
+      <p>Calm by default — cool white, never a wall of color. It speaks up with
+         amber and red only as you near a limit, so a warning actually reads as one.</p>
+    </article>
+    <article class="card reveal">
+      <h3>USB or Wi-Fi</h3>
+      <p>Plug it in over USB for a zero-config wired link, or run it wireless on
+         your network. It falls back automatically and shows the active mode.</p>
+    </article>
+    <article class="card reveal">
+      <h3>Local-first &amp; private</h3>
+      <p>A small agent runs on your machine and talks to the device directly.
+         No cloud account, no telemetry — your usage stays on your network.</p>
+    </article>
+    <article class="card reveal">
+      <h3>Multi-tool aware</h3>
+      <p>Running Claude and Cursor at once? Tap to cycle tools. One device,
+         your whole AI toolbelt.</p>
+    </article>
+    <article class="card reveal">
+      <h3>Updates over the air</h3>
+      <p>Signed firmware with automatic rollback: a bad update reverts itself,
+         so the device on your desk just keeps working.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ── How it works ──────────────────────────────────── -->
+<section id="how" class="how">
+  <h2 class="reveal">Three steps to live.</h2>
+  <ol>
+    <li class="reveal"><span class="step">1</span>
+      <h3>Place it</h3>
+      <p>Set the round display on your desk and power it over USB-C.</p></li>
+    <li class="reveal"><span class="step">2</span>
+      <h3>Run the agent</h3>
+      <p>Install the menu bar app (macOS) or run <code>vibe-pi-host</code>.
+         It finds your AI tools automatically.</p></li>
+    <li class="reveal"><span class="step">3</span>
+      <h3>Pair &amp; go</h3>
+      <p>Confirm the 6-digit code once. From then on it just shows up.</p></li>
+  </ol>
+</section>
+
+<!-- ── Specs ─────────────────────────────────────────── -->
+<section id="specs" class="specs reveal">
+  <h2>Specs</h2>
+  <dl>
+    <div><dt>Display</dt><dd>1.75″ round AMOLED · 466 × 466</dd></div>
+    <div><dt>SoC</dt><dd>ESP32-S3 · Wi-Fi + BLE 5 · 16 MB / 8 MB PSRAM</dd></div>
+    <div><dt>Input</dt><dd>Capacitive touch · IMU · physical button</dd></div>
+    <div><dt>Link</dt><dd>USB-C (wired) or Wi-Fi (WebSocket)</dd></div>
+    <div><dt>Host</dt><dd>macOS, Linux, Windows · Python agent</dd></div>
+    <div><dt>Updates</dt><dd>Signed OTA with auto-rollback</dd></div>
+  </dl>
+</section>
+
+<!-- ── CTA ───────────────────────────────────────────── -->
+<section id="get" class="getone reveal">
+  <h2>Put your usage on your desk.</h2>
+  <p>Be first to know when the next batch ships.</p>
+  <form class="signup" onsubmit="return vibe_notify(event)">
+    <input type="email" name="email" placeholder="you@example.com" required aria-label="Email" />
+    <button class="btn btn-primary" type="submit">Notify me</button>
+  </form>
+  <p class="micro" id="signupMsg"></p>
+</section>
+</main>
+
+<footer class="foot">
+  <span><span class="brand-dot"></span> Vibe Pi</span>
+  <span class="muted">Local-first AI usage monitor · © 2026</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
