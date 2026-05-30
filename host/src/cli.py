@@ -70,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
     cert_sub.add_parser("generate", help="Generate self-signed cert + key for WSS")
     cert_sub.add_parser("show", help="Show certificate fingerprint")
 
+    # Usage history
+    hist = sub.add_parser("history", help="Show recorded usage history")
+    hist.add_argument("--tool", default=None, help="Limit to one tool (e.g. claude_code)")
+    hist.add_argument("--days", type=int, default=7, help="How many days of daily peaks to show")
+
     return parser
 
 
@@ -128,6 +133,32 @@ def handle_ota(args):
         print(f"Signing key: {OTA_KEY_PATH}")
         print(f"Public key (paste into firmware/src/system/ota_pubkey.h as OTA_PUBKEY):")
         print(f'  #define OTA_PUBKEY "{key.hex()}"')
+
+
+def handle_history(args):
+    from .history import UsageHistory
+    h = UsageHistory()
+    try:
+        tools = [args.tool] if args.tool else h.tools()
+        if not tools:
+            print("No usage history recorded yet. Let the agent run for a while.")
+            return
+        for t in tools:
+            latest = h.latest(t)
+            samples = h.count(t)
+            print(f"\n{t}  ({samples} samples)")
+            if latest:
+                print(f"  latest:  cost=${latest['cost_usd']:.4f}  "
+                      f"tokens={latest['tokens_used']:,}  "
+                      f"5h={latest['pct_5h']:.0f}%  7d={latest['pct_7d']:.0f}%")
+            rate = h.burn_rate(t)
+            if rate > 0:
+                print(f"  burn rate (last 30m):  ${rate:.4f}/min  (~${rate * 60:.2f}/h)")
+            daily = h.daily(t, "cost_7d", args.days)
+            for day in sorted(daily):
+                print(f"  {day}:  peak 7d-window cost ${daily[day]:.4f}")
+    finally:
+        h.close()
 
 
 def handle_cert(args):

@@ -5,9 +5,12 @@ import logging
 import logging.handlers
 import signal
 import sys
+import time
 from pathlib import Path
 
-from .cli import build_parser, handle_devices, handle_ota, handle_cert, __version__
+from .cli import (build_parser, handle_devices, handle_ota, handle_cert,
+                  handle_history, __version__)
+from .history import UsageHistory
 from .config import AppConfig, init_config, load_config
 from .collectors import (ClaudeCodeCollector, CodexCollector, GeminiCLICollector,
                          CursorCollector, WindsurfCollector, SystemCollector)
@@ -79,6 +82,7 @@ async def run(cfg: AppConfig):
     # Persisted secret so device pair tokens survive host restarts.
     pairing_mgr = PairingManager(registry, secret=get_or_create_secret())
     ota = OTAManager()
+    history = UsageHistory()   # SQLite time-series; foundation for trends/budgets
 
     server = StatusServer(
         host=cfg.server.host, port=cfg.server.port,
@@ -163,6 +167,7 @@ async def run(cfg: AppConfig):
     logger.info("Waiting for device connections...")
 
     prev_active_tool = "idle"   # for active-tool hysteresis across polls
+    last_prune = 0.0
     try:
         while True:
             tools_data: dict = {}
@@ -212,6 +217,17 @@ async def run(cfg: AppConfig):
                 active_tool = best_name
             prev_active_tool = active_tool
 
+            # Persist this poll to the time-series store (buffered, flushed
+            # off-thread on an interval — never blocks the loop). Prune daily.
+            now_ts = int(time.time())
+            await history.record(tools_data, now_ts)
+            if now_ts - last_prune > 86400:
+                last_prune = now_ts
+                pruned = await asyncio.get_event_loop().run_in_executor(
+                    None, history.prune, now_ts)
+                if pruned:
+                    logger.info(f"History: pruned {pruned} samples past retention")
+
             # Broadcast to WS devices
             if server.device_count > 0:
                 await server.broadcast_status(tools_data, system_data, active_tool)
@@ -231,6 +247,7 @@ async def run(cfg: AppConfig):
     except asyncio.CancelledError:
         pass
     finally:
+        history.close()   # flush any buffered samples before exit
         await serial_tx.stop()
         if mdns:
             await mdns.stop()
@@ -258,6 +275,10 @@ def main():
 
     if command == "cert":
         handle_cert(args)
+        return
+
+    if command == "history":
+        handle_history(args)
         return
 
     if command == "pair":
