@@ -1,7 +1,7 @@
 #pragma once
 
 // ── Firmware ──
-#define FW_VERSION        "0.2.2"
+#define FW_VERSION        "0.2.3"
 #define PROTOCOL_VERSION  2
 #define DEVICE_HARDWARE   "waveshare-esp32s3-amoled-175"
 
@@ -72,6 +72,10 @@
 #define OTA_MAX_RETRIES            3
 #define OTA_DOWNLOAD_TIMEOUT_MS 300000  // 5 min hard cap on whole download
 #define OTA_STALL_TIMEOUT_MS     30000  // abort if 30s pass with no new bytes
+// Stable-uptime window a freshly-OTA'd image must survive before it self-confirms
+// (cancels rollback). If it panics/WDT-resets inside this window, the next boot
+// reverts to the previous partition. Independent of host connectivity by design.
+#define OTA_PROBATION_MS         30000
 
 // ── NVS Namespace & Keys ──
 #define NVS_NAMESPACE      "vibepi"

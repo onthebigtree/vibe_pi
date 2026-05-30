@@ -26,6 +26,7 @@ struct OtaInfo {
 };
 
 void        ota_init();
+void        ota_confirm_tick();   // call each loop: self-confirms a probationary OTA image
 void        ota_on_available(const JsonObject &payload);
 void        ota_on_start(const JsonObject &payload);
 bool        ota_start_download();

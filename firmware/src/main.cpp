@@ -134,6 +134,7 @@ void loop() {
     serial_config_loop();
     display_update_touch();
     notif_loop();
+    ota_confirm_tick();   // self-confirm a probationary OTA image once it's stable
 
     // State machine runs BEFORE rendering to avoid blocking on UI transitions
     // lv_timer_handler() runs AFTER state machine so it renders the final state
