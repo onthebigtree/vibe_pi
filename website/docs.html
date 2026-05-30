@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe Pi — Docs</title>
+<meta name="description" content="Vibe Pi documentation: install the local-first host agent, pair your device, connection modes, supported AI tools, firmware updates, CLI and troubleshooting.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="brand" href="index.html#top"><span class="brand-dot"></span> Vibe&nbsp;Pi</a>
+  <nav class="nav-links" id="navLinks">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#specs">Specs</a>
+    <a href="download.html">Download</a>
+    <a class="active" href="docs.html">Docs</a>
+    <a class="btn btn-ghost" href="download.html">Get the app</a>
+  </nav>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+</header>
+
+<a id="top"></a>
+
+<div class="docs-shell">
+
+  <!-- sidebar anchor nav -->
+  <aside class="docs-side">
+    <div class="side-label">Documentation</div>
+    <nav id="docNav">
+      <a href="#overview">Overview</a>
+      <a href="#getting-started">Getting started</a>
+      <a href="#macos-app">The macOS app</a>
+      <a href="#pairing">Pairing</a>
+      <a href="#connection">Connection modes</a>
+      <a href="#tools">Supported tools</a>
+      <a href="#firmware">Firmware &amp; updates</a>
+      <a href="#cli">Usage history &amp; CLI</a>
+      <a href="#troubleshooting">Troubleshooting &amp; FAQ</a>
+    </nav>
+  </aside>
+
+  <main class="docs-body">
+
+    <div class="docs-head">
+      <span class="badge"><span class="dot"></span> Local-first · v0.2.3</span>
+      <h1>Vibe Pi docs</h1>
+      <p>Everything you need to set up the host agent, pair your device, and read your AI usage at a glance. Vibe Pi runs entirely on your own machine — no cloud account, no telemetry.</p>
+    </div>
+
+    <!-- OVERVIEW -->
+    <section class="doc-sec" id="overview">
+      <h2>Overview</h2>
+      <p>Vibe Pi is a 1.75-inch round AMOLED desk monitor (466×466) that shows how much of your AI coding budget you have left — your rolling <strong>5-hour</strong> window and your <strong>7-day</strong> window, side by side. It pairs with a small host agent that runs on your computer and reads usage locally.</p>
+      <p><strong>Local-first by design.</strong> The host agent runs on your machine and talks to the device directly over USB or your local network. There is no cloud account to create, nothing is uploaded, and no telemetry is collected. Your usage data never leaves your desk.</p>
+      <ul>
+        <li>Device: ESP32-S3, CO5300 display, CST9217 touch, QMI8658 IMU, AXP2101 PMU, Wi-Fi + BLE 5, 16MB flash / 8MB PSRAM.</li>
+        <li>Host agent: Python, runs on macOS, Linux, and Windows.</li>
+        <li>Dashboard + API served locally at <code>http://127.0.0.1:8765</code>.</li>
+      </ul>
+    </section>
+
+    <!-- GETTING STARTED -->
+    <section class="doc-sec" id="getting-started">
+      <h2>Getting started</h2>
+      <p>Install the host agent, generate a config, then run it. The agent serves a dashboard and discovers your AI tools automatically.</p>
+
+      <h3>1. Install the host agent</h3>
+      <pre><code><span class="c"># clone / enter the host directory, then:</span>
+pip install -e <span class="a">'.[web]'</span></code></pre>
+
+      <h3>2. Create a config (optional)</h3>
+      <p>Generates a default config file you can edit later.</p>
+      <pre><code>vibe-pi-host init</code></pre>
+
+      <h3>3. Run it</h3>
+      <pre><code>vibe-pi-host run
+<span class="c"># add --debug for verbose logs</span></code></pre>
+
+      <h3>4. Open the dashboard</h3>
+      <p>The agent serves a dashboard and a local API at <code>http://127.0.0.1:8765</code>. From <code>localhost</code> no token is required. The dashboard shows:</p>
+      <ul>
+        <li>Live status of detected AI coding tools and your 5-hour / 7-day usage.</li>
+        <li>Paired devices, their connection mode (USB or Wi-Fi), and online state.</li>
+        <li>The pairing screen to confirm a new device, plus the remote-access token for LAN use.</li>
+      </ul>
+      <div class="note">
+        <div class="tag"><span class="d"></span> Note</div>
+        Accessing the dashboard from another machine on your LAN requires the dashboard token — see <a class="inline" href="#pairing">Pairing</a>.
+      </div>
+    </section>
+
+    <!-- MACOS APP -->
+    <section class="doc-sec" id="macos-app">
+      <h2>The macOS app</h2>
+      <p>On macOS you can run the agent as a lightweight menu bar app instead of from the terminal. It lives in the menu bar with no dock-icon clutter and is purely a control surface — it does not re-implement any agent logic, it talks to the running agent over its local HTTP API.</p>
+
+      <div class="card">
+        <h3>Menu bar</h3>
+        <p>From the menu bar icon you can:</p>
+        <ul>
+          <li><strong>Start / Stop</strong> the host agent daemon, with a colored status indicator (running / stopped).</li>
+          <li><strong>Open dashboard</strong> at <code>http://127.0.0.1:8765</code>.</li>
+          <li><strong>Pair</strong> a new device.</li>
+          <li><strong>Copy remote token</strong> — copies the LAN access token (<code>~/.config/vibe-pi/dashboard_token</code>) to your clipboard.</li>
+          <li><strong>Launch at login</strong> — optional auto-start when you log in.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Native dashboard window</h3>
+        <p>This build adds a built-in native dashboard window via pywebview, so you can view the dashboard without opening a browser. It shows the same content as <code>http://127.0.0.1:8765</code>.</p>
+      </div>
+
+      <h3>Install &amp; run</h3>
+      <pre><code><span class="c"># installs the host agent + menu bar deps</span>
+pip install -e <span class="a">'.[macapp]'</span>
+
+<span class="c"># run from the menubar directory</span>
+python vibe_pi_menubar.py</code></pre>
+      <p>The menu bar app talks to the agent over its local API at <code>http://127.0.0.1:8765</code>. An agent that auto-starts at login is treated as external — quitting the app won't kill it; it only tears down agents it started itself.</p>
+    </section>
+
+    <!-- PAIRING -->
+    <section class="doc-sec" id="pairing">
+      <h2>Pairing</h2>
+      <p>Pairing links a device to your host agent so usage data can be sent to it. The device displays a <strong>6-digit code</strong>; you confirm it once in the dashboard.</p>
+      <ul>
+        <li>Power on the device and connect it (USB cable, or join it to your Wi-Fi during first-time setup).</li>
+        <li>The device shows a 6-digit pairing code.</li>
+        <li>Open the dashboard and confirm that same code. That's it — pairing is one-time.</li>
+      </ul>
+      <p>You can also start pairing from the CLI or the macOS menu bar.</p>
+      <pre><code>vibe-pi-host pair</code></pre>
+
+      <div class="note">
+        <div class="tag"><span class="d"></span> Remote / LAN access</div>
+        Reaching the dashboard from <code>localhost</code> needs no token. Reaching it from another machine on your network requires the <strong>dashboard token</strong>. Copy it from the macOS menu bar (<em>Copy remote token</em>) or read it from <code>~/.config/vibe-pi/dashboard_token</code>, then pass it as <code>?token=…</code> or the <code>X-Vibe-Token</code> header when you open the dashboard over LAN.
+      </div>
+    </section>
+
+    <!-- CONNECTION MODES -->
+    <section class="doc-sec" id="connection">
+      <h2>Connection modes</h2>
+      <p>Vibe Pi uses dual transport. USB-serial is the primary, zero-config path; Wi-Fi WebSocket is the fallback. The device shows which mode is currently active.</p>
+
+      <div class="conn-fig">
+        <svg viewBox="0 0 640 200" role="img" aria-label="Host agent connects to the device over USB-serial as primary and Wi-Fi WebSocket as fallback">
+          <!-- host box -->
+          <rect x="20" y="62" width="160" height="76" rx="12" fill="#14181F" stroke="#242a33"/>
+          <text x="100" y="96" text-anchor="middle" font-family="Inter" font-size="14" font-weight="700" fill="#E8EAED">Host agent</text>
+          <text x="100" y="116" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#7A8A9A">127.0.0.1:8765</text>
+          <!-- device box -->
+          <rect x="460" y="62" width="160" height="76" rx="12" fill="#14181F" stroke="#242a33"/>
+          <text x="540" y="96" text-anchor="middle" font-family="Inter" font-size="14" font-weight="700" fill="#E8EAED">Vibe Pi device</text>
+          <text x="540" y="116" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#7A8A9A">ESP32-S3</text>
+          <!-- primary: usb -->
+          <line x1="180" y1="86" x2="460" y2="86" stroke="#C4CCDA" stroke-width="2"/>
+          <circle cx="180" cy="86" r="3" fill="#C4CCDA"/>
+          <circle cx="460" cy="86" r="3" fill="#C4CCDA"/>
+          <text x="320" y="78" text-anchor="middle" font-family="Inter" font-size="12" font-weight="600" fill="#E8EAED">USB-serial · primary</text>
+          <!-- fallback: wifi -->
+          <line x1="180" y1="116" x2="460" y2="116" stroke="#7A8A9A" stroke-width="2" stroke-dasharray="6 6"/>
+          <circle cx="180" cy="116" r="3" fill="#7A8A9A"/>
+          <circle cx="460" cy="116" r="3" fill="#7A8A9A"/>
+          <text x="320" y="138" text-anchor="middle" font-family="Inter" font-size="12" fill="#7A8A9A">Wi-Fi WebSocket · fallback</text>
+        </svg>
+      </div>
+
+      <h3>USB-serial (primary)</h3>
+      <p>Plug the device into your computer with a USB-C cable. This path is zero-config: no Wi-Fi credentials, no network discovery. It's the most reliable way to keep the device fed with data.</p>
+
+      <h3>Wi-Fi WebSocket (fallback)</h3>
+      <p>When USB isn't connected, the device falls back to a WebSocket connection over your local network and finds the host agent at its saved address.</p>
+
+      <div class="note warn">
+        <div class="tag"><span class="d"></span> Heads up</div>
+        mDNS auto-discovery is currently <strong>off</strong>. Over Wi-Fi the device reaches the host using the saved host IP (and a subnet probe), not automatic discovery. If your host's IP changed, re-provision the device so it learns the new address — see <a class="inline" href="#troubleshooting">Troubleshooting</a>.
+      </div>
+    </section>
+
+    <!-- SUPPORTED TOOLS -->
+    <section class="doc-sec" id="tools">
+      <h2>Supported tools</h2>
+      <p>Vibe Pi shows usage for the AI coding tools you actually use. Two are fully wired with real usage windows; the rest are detected as running, with real numbers on the way.</p>
+      <ul>
+        <li><span class="pill"><span class="d"></span> Claude Code</span> &nbsp;Real 5-hour &amp; 7-day usage.</li>
+        <li><span class="pill"><span class="d"></span> Codex</span> &nbsp;Real 5-hour &amp; 7-day usage.</li>
+        <li><span class="pill soon"><span class="d"></span> Cursor</span> &nbsp;Detected as running — usage numbers coming.</li>
+        <li><span class="pill soon"><span class="d"></span> Windsurf</span> &nbsp;Detected as running — usage numbers coming.</li>
+        <li><span class="pill soon"><span class="d"></span> Gemini CLI</span> &nbsp;Detected as running — usage numbers coming.</li>
+      </ul>
+      <div class="note">
+        <div class="tag"><span class="d"></span> Note</div>
+        For Cursor, Windsurf, and Gemini CLI the device shows that the tool is active, but the percentage figures are not real usage yet. We're being upfront: more tools with real data are coming.
+      </div>
+    </section>
+
+    <!-- FIRMWARE -->
+    <section class="doc-sec" id="firmware">
+      <h2>Firmware &amp; updates</h2>
+      <p>The current firmware version is <strong>0.2.3</strong>. Updates are delivered as <strong>signed OTA</strong> images with <strong>automatic rollback</strong> — if an update fails to boot, the device reverts to the previous known-good firmware on its own.</p>
+      <p>You can manage firmware images from the CLI:</p>
+      <pre><code><span class="c"># publish a firmware file with a version label</span>
+vibe-pi-host ota publish firmware.bin 0.2.4
+
+<span class="c"># list published versions</span>
+vibe-pi-host ota list</code></pre>
+    </section>
+
+    <!-- CLI -->
+    <section class="doc-sec" id="cli">
+      <h2>Usage history &amp; CLI</h2>
+      <p>Inspect past usage from the terminal with the history command:</p>
+      <pre><code>vibe-pi-host history</code></pre>
+      <p>The full set of subcommands:</p>
+      <ul>
+        <li><code>run</code> — start the host agent and serve the dashboard.</li>
+        <li><code>init</code> — generate a default config file.</li>
+        <li><code>devices</code> — list, rename, and unpair devices.</li>
+        <li><code>pair</code> — begin pairing a new device.</li>
+        <li><code>ota</code> — publish and list firmware images.</li>
+        <li><code>cert</code> — manage certificates used for secure connections.</li>
+        <li><code>history</code> — view recorded usage history.</li>
+      </ul>
+      <pre><code><span class="c"># a few common examples</span>
+vibe-pi-host devices list
+vibe-pi-host devices rename <span class="a">&lt;ID&gt; &lt;NAME&gt;</span>
+vibe-pi-host devices unpair <span class="a">&lt;ID&gt;</span></code></pre>
+    </section>
+
+    <!-- TROUBLESHOOTING -->
+    <section class="doc-sec" id="troubleshooting">
+      <h2>Troubleshooting &amp; FAQ</h2>
+
+      <div class="faq">
+        <details open>
+          <summary>The device says "wifi failed" <span class="chev">+</span></summary>
+          <p>This usually means the device is trying to reach the host at a stale saved IP address. Because mDNS auto-discovery is currently off, the device relies on the host IP it learned during setup. If your computer's IP changed (new network, DHCP lease, etc.), re-provision the device so it learns the current address — or connect over USB-serial, which needs no IP at all.</p>
+        </details>
+
+        <details>
+          <summary>It's stuck on "finding host" <span class="chev">+</span></summary>
+          <p>Make sure the host agent is actually running (<code>vibe-pi-host run</code>, or Start from the macOS menu bar) and reachable on the same LAN as the device. The simplest fix is a USB-C cable: USB-serial is the primary, zero-config path and bypasses network discovery entirely.</p>
+        </details>
+
+        <details>
+          <summary>How do I change screen brightness? <span class="chev">+</span></summary>
+          <p>Brightness is adjustable on the device from its on-screen display settings. The screen also dims and sleeps progressively on its own to stay calm and save power.</p>
+        </details>
+
+        <details>
+          <summary>How do I factory reset the device? <span class="chev">+</span></summary>
+          <p>Long-press the device button to trigger a reset. The firmware supports staged reset levels, ending with a full factory reset that clears stored settings and pairing so you can start over. You can also unpair a device from the host with <code>vibe-pi-host devices unpair &lt;ID&gt;</code>.</p>
+        </details>
+
+        <details>
+          <summary>Does any of my data go to the cloud? <span class="chev">+</span></summary>
+          <p>No. Vibe Pi is local-first: the host agent runs on your machine, talks to the device over USB or your LAN, and there is no cloud account and no telemetry. Nothing is uploaded.</p>
+        </details>
+
+        <details>
+          <summary>Why don't Cursor / Windsurf / Gemini CLI show real numbers? <span class="chev">+</span></summary>
+          <p>Right now only Claude Code and Codex expose real 5-hour and 7-day usage. The others are detected as running so you can see they're active, but accurate usage figures for them are still coming.</p>
+        </details>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot">
+  <span><span class="brand-dot"></span> Vibe Pi</span>
+  <span class="muted">Local-first AI usage monitor · © 2026</span>
+</footer>
+
+<script src="app.js"></script>
+<script>
+/* sidebar active-link highlight on scroll — calm, reduced-motion safe */
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('#docNav a'));
+  var map = {};
+  links.forEach(function(a){ map[a.getAttribute('href').slice(1)] = a; });
+  var secs = Array.prototype.slice.call(document.querySelectorAll('.doc-sec'));
+  if (!('IntersectionObserver' in window) || !secs.length) return;
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting){
+        links.forEach(function(a){ a.classList.remove('active'); });
+        var a = map[e.target.id];
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 });
+  secs.forEach(function(s){ io.observe(s); });
+})();
+</script>
+</body>
+</html>

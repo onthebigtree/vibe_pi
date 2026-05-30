@@ -1,0 +1,128 @@
+/* ============================================================
+   Vibe Pi — docs page layout
+   reuses styles.css tokens; only adds doc shell + sidebar
+   ============================================================ */
+
+.docs-shell{
+  max-width:var(--maxw);margin:0 auto;padding:34px 28px 40px;
+  display:grid;grid-template-columns:230px 1fr;gap:48px;align-items:start;
+}
+
+/* sticky anchor sidebar (desktop) */
+.docs-side{
+  position:sticky;top:84px;align-self:start;
+}
+.docs-side .side-label{
+  font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--text-3);padding:0 12px 12px;
+}
+.docs-side nav{display:flex;flex-direction:column;gap:2px}
+.docs-side a{
+  display:block;padding:8px 12px;border-radius:10px;
+  font-size:14px;color:var(--text-2);border-left:2px solid transparent;
+  transition:.16s;
+}
+.docs-side a:hover{color:var(--text);background:rgba(196,204,218,.05)}
+.docs-side a.active{
+  color:var(--text);border-left-color:var(--slate);
+  background:rgba(196,204,218,.06);
+}
+
+/* doc body */
+.docs-body{min-width:0}
+.docs-head{margin-bottom:8px}
+.docs-head h1{font-size:clamp(28px,4.4vw,40px);font-weight:800;letter-spacing:-.6px;line-height:1.1}
+.docs-head p{color:var(--text-2);margin-top:14px;max-width:640px}
+
+.doc-sec{padding-top:54px;scroll-margin-top:84px}
+.doc-sec h2{
+  font-size:clamp(20px,2.8vw,26px);font-weight:800;letter-spacing:-.4px;
+  padding-bottom:10px;border-bottom:1px solid var(--line);
+}
+.doc-sec h3{font-size:16px;font-weight:700;margin-top:26px}
+.doc-sec p{color:var(--text-2);font-size:15px;margin-top:14px}
+.doc-sec ul{color:var(--text-2);font-size:15px;margin:14px 0 0 20px;display:flex;flex-direction:column;gap:8px}
+.doc-sec ul li::marker{color:var(--text-3)}
+.doc-sec a.inline{color:var(--slate);border-bottom:1px solid var(--line)}
+.doc-sec a.inline:hover{border-bottom-color:var(--slate)}
+
+/* inline + block code (reuses --mono + panel tokens) */
+code{
+  font-family:var(--mono);font-size:.88em;
+  background:var(--panel-2);border:1px solid var(--line);
+  border-radius:6px;padding:1.5px 6px;color:var(--text);
+}
+pre{
+  margin-top:16px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:12px;padding:18px 20px;overflow-x:auto;
+}
+pre code{
+  background:none;border:none;padding:0;font-size:13px;
+  color:var(--text);line-height:1.7;display:block;white-space:pre;
+}
+pre code .c{color:var(--text-3)}      /* comment / prompt */
+pre code .a{color:var(--slate)}       /* accent token */
+
+/* small callout — warn-only color, calm by default */
+.note{
+  margin-top:18px;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel);padding:16px 18px;font-size:14px;color:var(--text-2);
+}
+.note .tag{
+  display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;
+  letter-spacing:.4px;text-transform:uppercase;color:var(--text-3);margin-bottom:7px;
+}
+.note .tag .d{width:7px;height:7px;border-radius:50%;background:var(--slate)}
+.note.warn{border-color:rgba(240,160,36,.4)}
+.note.warn .tag{color:var(--warn)}
+.note.warn .tag .d{background:var(--warn)}
+
+/* status pills for tool/connection tables */
+.pill{
+  display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+  padding:3px 10px;border-radius:999px;border:1px solid var(--line);
+  background:var(--panel);color:var(--text-2);white-space:nowrap;
+}
+.pill .d{width:6px;height:6px;border-radius:50%;background:var(--slate)}
+.pill.soon{color:var(--text-3)}
+.pill.soon .d{background:var(--text-3)}
+
+/* diagram blocks reuse .card; just tidy spacing inside docs */
+.doc-sec .card{margin-top:18px}
+.doc-sec .card h3{margin-top:0}
+
+/* connection diagram (inline svg) */
+.conn-fig{margin-top:18px;width:100%}
+.conn-fig svg{width:100%;height:auto;display:block}
+
+/* faq accordion (native details, calm) */
+.faq{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.faq details{
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  padding:0 18px;transition:.16s;
+}
+.faq details[open]{border-color:var(--slate)}
+.faq summary{
+  cursor:pointer;list-style:none;padding:16px 0;font-size:15px;font-weight:600;
+  color:var(--text);display:flex;align-items:center;justify-content:space-between;gap:14px;
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary .chev{color:var(--text-3);transition:.18s;flex:none}
+.faq details[open] summary .chev{transform:rotate(45deg)}
+.faq details p{margin:0 0 16px;color:var(--text-2);font-size:14px}
+
+@media(max-width:860px){
+  .docs-shell{grid-template-columns:1fr;gap:0}
+  .docs-side{
+    position:static;top:auto;margin-bottom:24px;
+    border:1px solid var(--line);border-radius:var(--radius);
+    background:var(--panel);padding:16px;
+  }
+  .docs-side nav{flex-flow:row wrap;gap:6px}
+  .docs-side a{border-left:none;padding:7px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px}
+  .docs-side a.active{border-color:var(--slate)}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .docs-side a,.faq details,.faq summary .chev,.note{transition:none}
+}

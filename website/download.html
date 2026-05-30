@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Download Vibe Pi — get it on your desk</title>
+<meta name="description" content="Get the Vibe Pi host app. Install the macOS menu bar app or the cross-platform vibe-pi-host agent from source, pair your device with a 6-digit code, and put your AI usage on your desk. Local-first, no cloud account." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="download.css" />
+</head>
+<body>
+
+<!-- ── Nav (canonical, shared across all pages) ──────────── -->
+<header class="nav">
+  <a class="brand" href="index.html#top"><span class="brand-dot"></span> Vibe&nbsp;Pi</a>
+  <nav class="nav-links" id="navLinks">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#specs">Specs</a>
+    <a class="active" href="download.html">Download</a>
+    <a href="docs.html">Docs</a>
+    <a class="btn btn-ghost" href="download.html">Get the app</a>
+  </nav>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+</header>
+
+<main id="top">
+
+<!-- ── Page hero ─────────────────────────────────────── -->
+<section class="page-hero">
+  <div class="reveal">
+    <p class="eyebrow">Download &amp; get started</p>
+    <h1>Get Vibe Pi on your desk.</h1>
+    <p>
+      The host app runs on your own machine — macOS, Linux or Windows. Install it,
+      pair your device with a 6-digit code, and your Claude&nbsp;Code and Codex
+      usage shows up on the screen. Local-first, no cloud account, no telemetry.
+    </p>
+  </div>
+
+  <!-- Quick jump chips -->
+  <div class="dl-jump reveal" aria-label="Jump to a section">
+    <a class="dl-chip" href="#macos">macOS app</a>
+    <a class="dl-chip" href="#agent">Host agent (any OS)</a>
+    <a class="dl-chip" href="#firmware">Firmware</a>
+    <a class="dl-chip" href="#pairing">Pairing</a>
+    <a class="dl-chip" href="#requirements">Requirements</a>
+  </div>
+</section>
+
+<!-- ── macOS app ─────────────────────────────────────── -->
+<section id="macos" class="dl-section">
+  <div class="section-head reveal">
+    <h2>macOS app <span class="badge">menu bar</span></h2>
+    <p class="section-lead">
+      A lightweight menu bar controller that starts and stops the agent, opens the
+      dashboard, and helps you pair — with a native dashboard window so you don't
+      need a browser tab open. It builds on the same <code>vibe-pi-host</code>
+      agent; nothing duplicated.
+    </p>
+  </div>
+
+  <div class="dl-stage reveal">
+    <!-- Visual: a tiny menu-bar drop-down, drawn in inline SVG (no image files) -->
+    <div class="dl-visual">
+      <svg viewBox="0 0 300 232" class="dl-menubar" role="img" aria-label="Vibe Pi menu bar item showing a filled dot and the number 2, with a drop-down menu">
+        <!-- menu bar strip -->
+        <rect x="0" y="0" width="300" height="30" rx="6" fill="#0E1116" stroke="#242a33" />
+        <circle cx="246" cy="15" r="4.5" fill="#C4CCDA" />
+        <text x="258" y="20" class="dl-mb-num">2</text>
+        <text x="276" y="20" class="dl-mb-clock">9:41</text>
+        <!-- drop-down panel -->
+        <rect x="150" y="38" width="146" height="186" rx="10" fill="#14181F" stroke="#242a33" />
+        <text x="166" y="62" class="dl-mb-item dl-mb-strong">Stop Agent</text>
+        <line x1="162" y1="76" x2="284" y2="76" stroke="#242a33" />
+        <text x="166" y="98" class="dl-mb-item">Open Dashboard</text>
+        <text x="166" y="120" class="dl-mb-item">Open Dashboard Window</text>
+        <text x="166" y="142" class="dl-mb-item">Pair New Device…</text>
+        <text x="166" y="164" class="dl-mb-item">Copy Remote Token</text>
+        <line x1="162" y1="178" x2="284" y2="178" stroke="#242a33" />
+        <text x="166" y="200" class="dl-mb-item">Launch at Login</text>
+      </svg>
+    </div>
+
+    <div class="dl-install">
+      <a class="btn btn-primary dl-disabled" role="button" aria-disabled="true" tabindex="-1">Download for macOS</a>
+      <p class="note note-warn dl-note-tight">
+        <strong>Build from source for now.</strong> There's no notarized binary yet —
+        follow the steps below to install the menu bar app or build a local
+        <code>.app</code>. A signed download lands in a future release.
+      </p>
+    </div>
+  </div>
+
+  <h3 class="dl-subhead reveal">Install the menu bar app</h3>
+  <ol class="mock-steps dl-steps reveal">
+    <li><span class="step">1</span>
+      <h3>Install the host + app deps</h3>
+      <p>From the repo, install the agent together with the menu bar extras:</p>
+      <pre class="dl-code"><code>cd host
+pip install -e '.[macapp]'</code></pre>
+      <p>This installs the <code>vibe-pi-host</code> agent plus the menu bar
+         dependencies (rumps + pywebview).</p>
+    </li>
+    <li><span class="step">2</span>
+      <h3>Run the menu bar app</h3>
+      <pre class="dl-code"><code>cd menubar
+python vibe_pi_menubar.py</code></pre>
+      <p>A dot appears in your menu bar: <code>○</code> when the agent is stopped,
+         <code>●&nbsp;2</code> when it's running with 2 AI tools active. Click it to
+         start the agent and open the dashboard.</p>
+    </li>
+    <li><span class="step">3</span>
+      <h3>Pair and go</h3>
+      <p>Choose <strong>Pair New Device…</strong> to confirm the device's 6-digit
+         code, or <strong>Open Dashboard Window</strong> for a native window with no
+         browser chrome. Turn on <strong>Launch at Login</strong> to start the agent
+         automatically.</p>
+    </li>
+  </ol>
+
+  <h3 class="dl-subhead reveal">Or build a standalone <code>.app</code></h3>
+  <div class="reveal">
+    <pre class="dl-code"><code>cd host/menubar
+pip install py2app rumps pywebview
+python setup.py py2app
+open "dist/Vibe Pi.app"</code></pre>
+    <p class="note dl-note-tight">
+      <strong>Heads up:</strong> the bundle is menu-bar-only (no Dock icon) and
+      expects the <code>vibe-pi-host</code> console script on your <code>PATH</code>.
+      The native dashboard window loads <code>http://127.0.0.1:8765/</code> and shows
+      a calm fallback page if the agent isn't running.
+    </p>
+  </div>
+</section>
+
+<!-- ── Host agent (cross-platform) ───────────────────── -->
+<section id="agent" class="dl-section">
+  <div class="section-head reveal">
+    <h2>Host agent <span class="badge badge-live">any OS</span></h2>
+    <p class="section-lead">
+      The agent is the core of Vibe&nbsp;Pi — a small Python program that reads your
+      tools' usage locally and talks to the device over USB or Wi-Fi. It runs the
+      same on macOS, Linux and Windows.
+    </p>
+  </div>
+
+  <div class="grid-2">
+    <article class="card reveal">
+      <h3>1 · Install from source</h3>
+      <p>Clone the repo, then install the agent (a virtualenv is recommended):</p>
+      <pre class="dl-code"><code>cd host
+pip install -e .</code></pre>
+      <p>This puts the <code>vibe-pi-host</code> command on your <code>PATH</code>.</p>
+    </article>
+    <article class="card reveal">
+      <h3>2 · Initialize &amp; run</h3>
+      <p>Generate a config file, then start the agent:</p>
+      <pre class="dl-code"><code>vibe-pi-host init
+vibe-pi-host run</code></pre>
+      <p>It serves a dashboard and API at
+         <code>http://127.0.0.1:8765</code> — localhost needs no token; LAN access
+         uses one.</p>
+    </article>
+  </div>
+
+  <p class="note dl-note-tight reveal">
+    <strong>Useful commands.</strong>
+    <code>vibe-pi-host run</code> ·
+    <code>vibe-pi-host init</code> ·
+    <code>vibe-pi-host devices</code> ·
+    <code>vibe-pi-host pair</code> ·
+    <code>vibe-pi-host ota</code> ·
+    <code>vibe-pi-host cert</code> ·
+    <code>vibe-pi-host history</code>
+  </p>
+</section>
+
+<!-- ── Firmware ──────────────────────────────────────── -->
+<section id="firmware" class="dl-section">
+  <div class="section-head reveal">
+    <h2>Firmware <span class="badge">v0.2.3</span></h2>
+    <p class="section-lead">
+      The device ships with firmware <strong>v0.2.3</strong>. Updates are delivered
+      as <strong>signed OTA</strong> with <strong>automatic rollback</strong> — if an
+      update fails to boot cleanly, the device reverts to the previous version on its
+      own, so the monitor on your desk just keeps working.
+    </p>
+  </div>
+
+  <div class="grid-2 reveal">
+    <article class="card">
+      <h3>Already paired?</h3>
+      <p>You don't normally flash by hand. When a new signed build is published, the
+         agent offers it over the air and the device installs it, verifies it, and
+         rolls back automatically if anything's wrong.</p>
+    </article>
+    <article class="card">
+      <h3>Flashing it yourself</h3>
+      <p>Building from source or recovering a board? The flashing and OTA-publish
+         steps live in the docs, including <code>vibe-pi-host ota</code> for
+         publishing your own signed builds.</p>
+      <p><a class="dl-link" href="docs.html">Read the firmware docs →</a></p>
+    </article>
+  </div>
+</section>
+
+<!-- ── Pairing quickstart ────────────────────────────── -->
+<section id="pairing" class="dl-section">
+  <div class="section-head reveal">
+    <h2>Pair in three steps</h2>
+    <p class="section-lead">
+      Pairing is a one-time, on-device confirmation. After it, the device reconnects
+      to your agent on its own.
+    </p>
+  </div>
+
+  <ol class="how-ol dl-pair reveal">
+    <li>
+      <span class="step">1</span>
+      <h3>Start the agent</h3>
+      <p>Run <code>vibe-pi-host run</code> (or click <strong>Start Agent</strong> in
+         the macOS menu bar). Power on the device on the same machine or network.</p>
+    </li>
+    <li>
+      <span class="step">2</span>
+      <h3>Read the 6-digit code</h3>
+      <p>The device shows a 6-digit pairing code on its screen. Keep it visible for
+         the next step.</p>
+    </li>
+    <li>
+      <span class="step">3</span>
+      <h3>Confirm it once</h3>
+      <p>Enter or confirm the code in the dashboard at
+         <code>http://127.0.0.1:8765</code> — or pick <strong>Pair New Device…</strong>
+         in the menu bar. That's it; it reconnects automatically from now on.</p>
+    </li>
+  </ol>
+</section>
+
+<!-- ── System requirements ───────────────────────────── -->
+<section id="requirements" class="dl-section">
+  <div class="section-head reveal">
+    <h2>System requirements</h2>
+    <p class="section-lead">
+      The agent is light and self-contained. You need a recent Python and a way to
+      reach the device — USB-C or your local network.
+    </p>
+  </div>
+
+  <table class="data reveal">
+    <thead>
+      <tr><th>Requirement</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Operating system</td><td>macOS, Linux or Windows</td></tr>
+      <tr><td>Python</td><td>3.11 or newer</td></tr>
+      <tr><td>macOS app</td><td>Menu bar app via <code>pip install -e '.[macapp]'</code> (rumps + pywebview)</td></tr>
+      <tr><td>Connection</td><td>USB-C serial (primary) or Wi-Fi on the same LAN (fallback)</td></tr>
+      <tr><td>Dashboard</td><td><code>http://127.0.0.1:8765</code> — localhost token-free; LAN needs a token</td></tr>
+      <tr><td>Privacy</td><td>Local-first · no cloud account · no telemetry</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note dl-note-tight reveal">
+    <strong>Real usage today:</strong> Claude&nbsp;Code and Codex report live 5-hour
+    and 7-day window percentages. Cursor, Windsurf and Gemini&nbsp;CLI are detected as
+    running, with fuller usage numbers coming in a future update.
+  </div>
+</section>
+
+<!-- ── CTA ───────────────────────────────────────────── -->
+<section id="get" class="getone reveal">
+  <h2>Ready when you are.</h2>
+  <p>Install the agent, pair your device, and put your usage on your desk.</p>
+  <div class="cta-row cta-center">
+    <a class="btn btn-primary" href="#agent">Install the agent</a>
+    <a class="btn btn-ghost" href="docs.html">Read the docs</a>
+  </div>
+
+  <div class="signup-block">
+    <p class="signup-lead">Or get a note when a notarized download is ready.</p>
+    <form class="signup" onsubmit="return vibe_notify(event)">
+      <input type="email" name="email" placeholder="you@example.com" required aria-label="Email" />
+      <button class="btn btn-ghost" type="submit">Notify me</button>
+    </form>
+    <p class="micro" id="signupMsg"></p>
+  </div>
+</section>
+
+</main>
+
+<!-- ── Footer (canonical, shared across all pages) ───────── -->
+<footer class="foot">
+  <span><span class="brand-dot"></span> Vibe Pi</span>
+  <span class="muted">Local-first AI usage monitor · © 2026</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

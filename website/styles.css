@@ -112,10 +112,17 @@ h1, h2, h3 { letter-spacing: -0.02em; line-height: 1.1; }
 
 /* ── Sections ── */
 section { scroll-margin-top: 80px; }
-.features, .how, .specs, .getone { max-width: var(--maxw); margin: 0 auto; padding: 76px 28px; }
-.features h2, .how h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom: 38px; }
+.features, .how, .specs, .getone,
+.seeit, .faq { max-width: var(--maxw); margin: 0 auto; padding: 76px 28px; }
+.features h2, .how h2, .seeit h2, .faq h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom: 38px; }
+
+/* Shared standfirst paragraph (the .section-head wrapper is defined once
+   in the shared building-blocks block lower in this file). */
+.section-lead { color: var(--text-2); font-size: 1.05rem; max-width: 60ch; }
 
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+/* Generic 2-column grid for sub-pages (download/docs); collapses on mobile */
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
 .card {
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
   border: 1px solid var(--line); border-radius: var(--radius);
@@ -124,31 +131,122 @@ section { scroll-margin-top: 80px; }
 .card h3 { font-size: 1.12rem; margin-bottom: 10px; }
 .card p { color: var(--text-2); font-size: 0.96rem; }
 
-/* ── How ── */
-.how ol { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
-.how li { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 24px; }
-.how .step {
+/* ── How / stepped lists (reusable: .how + .mock-steps share styling) ── */
+.how ol, .mock-steps { list-style: none; display: grid; gap: 22px; }
+.how ol { grid-template-columns: repeat(3, 1fr); }
+.how li, .mock-steps li { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 24px; }
+.how .step, .mock-steps .step {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; border-radius: 50%;
   background: rgba(196,204,218,0.12); color: var(--slate);
   font-weight: 700; margin-bottom: 16px;
 }
-.how h3 { font-size: 1.1rem; margin-bottom: 8px; }
-.how p { color: var(--text-2); font-size: 0.96rem; }
+.how h3, .mock-steps h3 { font-size: 1.1rem; margin-bottom: 8px; }
+.how p, .mock-steps p { color: var(--text-2); font-size: 0.96rem; }
 .how code, .specs code { font-family: "JetBrains Mono", monospace; font-size: 0.88em; color: var(--slate); }
 
-/* ── Specs ── */
+/* The "see it work" mockup + cycling tool-face classes (.seeit-stage, .mock*,
+   .m-*) live in the HOME-PAGE SECTIONS block lower in this file. */
+
+/* ── Specs / generic data tables (reusable on docs page) ── */
 .specs h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom: 30px; }
-.specs dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.specs div { display: flex; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
-.specs div:nth-last-child(-n+2) { border-bottom: 0; }
-.specs dt { color: var(--text-3); font-weight: 600; }
-.specs dd { color: var(--text); text-align: right; }
+.spec-table, .data-table {
+  width: 100%; border-collapse: collapse;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+}
+.spec-table th, .spec-table td,
+.data-table th, .data-table td {
+  text-align: left; padding: 16px 22px; border-bottom: 1px solid var(--line);
+  font-size: 0.96rem; vertical-align: top;
+}
+.spec-table tr:last-child th, .spec-table tr:last-child td,
+.data-table tr:last-child th, .data-table tr:last-child td { border-bottom: 0; }
+.spec-table th[scope="row"] { color: var(--text-3); font-weight: 600; width: 30%; white-space: nowrap; }
+.spec-table td { color: var(--text); }
+/* Column-header variant for docs tables */
+.data-table thead th { color: var(--text-3); font-weight: 600; background: var(--panel); }
+.data-table td { color: var(--text-2); }
+
+/* ── FAQ (reusable: native <details> disclosure) ── */
+.faq-list { display: grid; gap: 12px; }
+.faq-item {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0 22px;
+}
+.faq-item summary {
+  list-style: none; cursor: pointer;
+  padding: 20px 0; font-weight: 600; font-size: 1.02rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: "+"; color: var(--text-3); font-weight: 400; font-size: 1.3rem; }
+.faq-item[open] summary::after { content: "–"; }
+.faq-item p { color: var(--text-2); font-size: 0.96rem; padding: 0 0 22px; max-width: 64ch; }
+.faq-item a { color: var(--slate); }
+.faq-item a:hover { text-decoration: underline; }
+.faq-item code { font-family: "JetBrains Mono", monospace; font-size: 0.88em; color: var(--slate); }
+
+/* ── Badges (reusable inline status pills) ── */
+.badge {
+  display: inline-block; vertical-align: middle;
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 8px; border-radius: 999px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--text-3);
+}
+.badge-live { color: var(--slate); border-color: rgba(196,204,218,0.35); background: rgba(196,204,218,0.10); }
+.badge-warn { color: var(--warn); border-color: rgba(240,160,36,0.35); background: rgba(240,160,36,0.10); }
+
+/* ── Note / callout block (reusable for docs tips & download requirements) ── */
+.note {
+  border: 1px solid var(--line); border-left: 3px solid var(--slate);
+  border-radius: 10px; background: var(--panel);
+  padding: 16px 20px; color: var(--text-2); font-size: 0.95rem;
+}
+.note strong { color: var(--text); }
+.note.note-warn { border-left-color: var(--warn); }
+.note code { font-family: "JetBrains Mono", monospace; font-size: 0.88em; color: var(--slate); }
+
+/* ── Page hero — simpler centered hero for sub-pages (download/docs) ── */
+.page-hero { max-width: var(--maxw); margin: 0 auto; padding: 56px 28px 24px; }
+.page-hero .eyebrow { margin-bottom: 14px; }
+.page-hero h1 { font-size: clamp(1.9rem, 4.4vw, 3rem); font-weight: 800; }
+.page-hero p { color: var(--text-2); font-size: 1.08rem; margin-top: 18px; max-width: 56ch; }
+
+/* ── Docs layout — sticky sidebar + content (for docs.html) ── */
+.docs-layout {
+  max-width: var(--maxw); margin: 0 auto; padding: 24px 28px 76px;
+  display: grid; grid-template-columns: 220px 1fr; gap: 44px; align-items: start;
+}
+.sidebar { position: sticky; top: 84px; align-self: start; }
+.sidebar nav { display: flex; flex-direction: column; gap: 4px; }
+.sidebar a {
+  color: var(--text-2); font-size: 0.95rem; padding: 7px 12px; border-radius: 8px;
+  border-left: 2px solid transparent;
+}
+.sidebar a:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.sidebar a.active { color: var(--text); border-left-color: var(--slate); }
+.docs-content { min-width: 0; }
+.docs-content h2 { font-size: clamp(1.4rem, 3vw, 2rem); margin: 40px 0 16px; }
+.docs-content h2:first-child { margin-top: 0; }
+.docs-content h3 { font-size: 1.15rem; margin: 26px 0 10px; }
+.docs-content p, .docs-content li { color: var(--text-2); }
+.docs-content p { margin-bottom: 14px; }
+.docs-content ul, .docs-content ol { margin: 0 0 16px 20px; }
+.docs-content li { margin-bottom: 6px; }
+.docs-content code { font-family: "JetBrains Mono", monospace; font-size: 0.88em; color: var(--slate); }
+.docs-content pre {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 18px; overflow-x: auto; margin-bottom: 18px;
+}
+.docs-content pre code { color: var(--text); font-size: 0.86rem; }
 
 /* ── CTA ── */
 .getone { text-align: center; }
 .getone h2 { font-size: clamp(1.7rem, 3.6vw, 2.4rem); }
 .getone > p { color: var(--text-2); margin: 14px 0 28px; }
+.cta-center { justify-content: center; }
+.signup-block { margin-top: 40px; padding-top: 30px; border-top: 1px solid var(--line); }
+.signup-lead { color: var(--text-3); font-size: 0.92rem; margin-bottom: 16px; }
 .signup { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .signup input {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -166,6 +264,118 @@ section { scroll-margin-top: 80px; }
 .foot .brand-dot { display: inline-block; margin-right: 6px; vertical-align: middle; }
 .muted { color: var(--text-3); font-size: 0.88rem; }
 
+/* ══════════════════════════════════════════════════════════════════════
+   SHARED, REUSABLE CLASSES — additive helpers
+   The primary, reusable components (.page-hero, .section-lead, .grid-2,
+   .badge, .note, .spec-table/.data-table, .sidebar, .faq-list/.faq-item)
+   are all defined and commented in the sections ABOVE. The few additions
+   below extend those (a table.data alias, a sidebar grouping label, and a
+   bare-<details> FAQ variant) so download.html / docs.html have what they
+   need. Avoid redefining the components above — extend them here. */
+
+/* .data alias for column-header tables: same look as .data-table, for markup
+   that prefers <table class="data"> over <table class="data-table">. */
+table.data {
+  width: 100%; border-collapse: collapse;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+}
+table.data th, table.data td {
+  text-align: left; padding: 16px 22px; border-bottom: 1px solid var(--line);
+  font-size: 0.96rem; vertical-align: top;
+}
+table.data th { color: var(--text-3); font-weight: 600; }
+table.data td { color: var(--text-2); }
+table.data tr:last-child th, table.data tr:last-child td { border-bottom: 0; }
+table.data code { font-family: "JetBrains Mono", monospace; font-size: 0.86em; color: var(--slate); }
+
+/* Sidebar grouping label + list variant — pairs with the .sidebar block above
+   for docs pages that want grouped sections (h4 heading + <ul> of links). */
+.sidebar h4 { color: var(--text-3); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; margin: 18px 0 10px; }
+.sidebar h4:first-child { margin-top: 0; }
+.sidebar ul { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.sidebar ul a { padding: 7px 10px; }
+
+/* FAQ — also style a bare <details> inside a .faq section, so either
+   <div class="faq-item"> wrappers or plain <details> markup works. */
+.faq h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom: 14px; }
+.faq .section-lead { margin-bottom: 30px; }
+.faq details {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0 22px;
+}
+.faq summary {
+  cursor: pointer; list-style: none;
+  padding: 20px 0; font-weight: 600; font-size: 1.02rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: var(--text-3); font-weight: 400; font-size: 1.3rem; }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { color: var(--text-2); font-size: 0.96rem; padding: 0 0 22px; max-width: 64ch; }
+.faq details p a { color: var(--slate); }
+.faq details p code { font-family: "JetBrains Mono", monospace; font-size: 0.88em; color: var(--slate); }
+
+/* ── .section-head ──
+   Heading + standfirst wrapper used above grids/lists on any page. */
+.section-head { margin-bottom: 30px; }
+.section-head h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom: 14px; }
+.section-head .section-lead { margin: 0; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   HOME-PAGE SECTIONS
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── "See it work" — section copy, then a copy / mockup / captions row ── */
+.seeit { display: grid; grid-template-columns: 1fr; gap: 30px; }
+.seeit .section-head { max-width: 62ch; }
+.seeit-stage {
+  display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 44px; align-items: center;
+}
+
+/* The smaller "cycling" device — its own self-contained mockup (not the hero). */
+.mock { position: relative; display: flex; justify-content: center; align-items: center; }
+.mock-bezel {
+  position: relative; z-index: 2;
+  width: min(300px, 72vw); aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, #15171c 0%, #050608 78%);
+  padding: 12px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 0 0 2px #1b1e24, inset 0 0 48px rgba(0,0,0,0.7);
+}
+/* Stacked faces cross-fade; app.js toggles .is-on. CSS-only fallback (and
+   reduced-motion) keeps the first face — Claude Code — visible. */
+.mock-screen { position: relative; width: 100%; height: 100%; }
+.mock-face {
+  position: absolute; inset: 0; opacity: 0;
+  transition: opacity .5s ease; pointer-events: none;
+}
+.mock-face.is-on { opacity: 1; }
+.mock-svg { width: 100%; height: 100%; display: block; }
+.mock-svg text { font-family: "Inter", sans-serif; }
+.m-tool   { fill: var(--text-2); font-size: 17px; font-weight: 600; }
+.m-hero   { fill: var(--text); font-size: 58px; font-weight: 800; letter-spacing: -0.03em; }
+.m-sub    { fill: var(--text-3); font-size: 13px; font-weight: 500; }
+.m-detect { fill: var(--text-3); font-size: 30px; font-weight: 700; }
+.mock-glow {
+  position: absolute; z-index: 1; width: 62%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, rgba(124,150,180,0.18), transparent 70%);
+  filter: blur(28px);
+}
+
+/* The numbered captions beside the mockup (reuses the .step pattern from .how) */
+.mock-steps { list-style: none; display: grid; gap: 18px; }
+.mock-steps li { color: var(--text-2); }
+.mock-steps .step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(196,204,218,0.12); color: var(--slate);
+  font-weight: 700; margin-bottom: 10px;
+}
+.mock-steps h3 { font-size: 1.05rem; margin-bottom: 6px; color: var(--text); }
+.mock-steps p { color: var(--text-2); font-size: 0.95rem; }
+
+/* .spec-table (Specs) and .signup-block/.signup-lead (CTA) are defined once in
+   the shared/CTA sections above; no home-only override needed. */
+
 /* ── Reveal on scroll ── */
 .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
 .reveal.in { opacity: 1; transform: none; }
@@ -174,8 +384,13 @@ section { scroll-margin-top: 80px; }
 @media (max-width: 860px) {
   .hero { grid-template-columns: 1fr; padding-top: 36px; }
   .hero-device { order: -1; }
-  .grid, .how ol, .specs dl { grid-template-columns: 1fr; }
+  .grid, .how ol, .specs dl, .grid-2 { grid-template-columns: 1fr; }
   .specs div { border-bottom: 1px solid var(--line) !important; }
+  /* "See it work" → stack copy / mockup / captions, mockup on top */
+  .seeit-stage { grid-template-columns: 1fr; gap: 28px; }
+  .mock { order: -1; }
+  /* Docs sidebar → flow inline above content instead of sticking */
+  .sidebar { position: static; top: auto; }
   .nav-links { display: none; position: absolute; top: 64px; right: 18px; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; gap: 14px; }
   .nav-links.open { display: flex; }
   .nav-toggle { display: block; }
@@ -184,4 +399,7 @@ section { scroll-margin-top: 80px; }
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
   html { scroll-behavior: auto; }
+  /* Mockup: no cross-fade. app.js already skips the cycler under reduced
+     motion, so the first (real-data) face stays shown; kill the transition too. */
+  .mock-face { transition: none; }
 }
