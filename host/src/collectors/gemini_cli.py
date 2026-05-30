@@ -23,4 +23,7 @@ class GeminiCLICollector(BaseCollector):
             "session_count": 0,
             "current_task": "",
             "uptime_min": 0,
+            "task_state": "idle" if running else "inactive",
+            "has_quota": False,   # no per-account 5h/7d source → device shows N/A
+            "last_activity": 0.0,
         }

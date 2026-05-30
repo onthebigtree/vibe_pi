@@ -77,6 +77,9 @@ static void on_reset(lv_event_t *e) {
     reset_execute(level, true);
 }
 
+static void on_open_diag(lv_event_t *e) { ui_open_diagnostics(); }
+static void on_open_ota(lv_event_t *e)  { ui_open_ota(); }
+
 lv_obj_t *settings_page_create(lv_obj_t *parent) {
     page = lv_obj_create(parent);
     lv_obj_set_size(page, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -114,6 +117,11 @@ lv_obj_t *settings_page_create(lv_obj_t *parent) {
                                (s.language == Lang::ZH) ? "中文" : "English",
                                on_toggle_lang, nullptr);
     lbl_device_name_val = create_item(list, i18n(S_DEVICE_NAME), s.device_name);
+
+    // System tools: diagnostics + firmware update (tap → those screens)
+    create_section(list, i18n(S_SYSTEM));
+    create_item(list, i18n(S_DIAGNOSTICS), ">", on_open_diag, nullptr);
+    create_item(list, i18n(S_FIRMWARE_UPDATE), ">", on_open_ota, nullptr);
 
     // About section
     create_section(list, i18n(S_ABOUT));

@@ -359,6 +359,11 @@ void serial_transport_send(const char *json) {
 
 bool serial_transport_is_active() { return _serial_transport_active; }
 unsigned long serial_transport_last_status() { return _last_serial_status; }
+void serial_transport_reset() {
+    _serial_transport_active = false;
+    _last_serial_status = 0;
+    Serial.println("[Serial] Transport reset (host lost) — allowing WS fallback");
+}
 
 bool serial_config_has_wifi()       { return _has_wifi; }
 const char *serial_config_get_ssid() { return _ssid; }

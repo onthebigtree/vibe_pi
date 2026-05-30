@@ -61,7 +61,10 @@
 #define MAX_CRASH_COUNT_SAFE_MODE  3
 #define ERROR_LOG_MAX_ENTRIES     32
 #define SELF_TEST_TIMEOUT_MS    5000
-#define WATCHDOG_TIMEOUT_MS   120000
+// 15s with panic-on-timeout: a true hang self-heals via reboot instead of
+// hanging for two minutes. Safely above the longest legitimate blocking call
+// (15s WiFi connect, 2-8s scan), both of which feed the WDT in their wait loops.
+#define WATCHDOG_TIMEOUT_MS    15000
 
 // ── OTA ──
 #define OTA_HTTP_TIMEOUT_MS    30000

@@ -38,12 +38,52 @@ class CodexCollector(BaseCollector):
             "model": "", "tokens_used": 0, "tokens_display": "0",
             "cost_usd": 0.0, "cost_display": "$0.00", "usage_pct": 0,
             "session_count": 0, "current_task": "", "uptime_min": 0,
+            "task_state": "idle" if running else "inactive",
+            "has_quota": False, "last_activity": 0.0,
         }
         # Filesystem walk + file read + regex — keep it off the event loop.
         session = await asyncio.to_thread(self._find_latest_session)
         if session:
             result.update(session)
+            age = session.get("uptime_min", 999)
+            result["last_activity"] = time.time() - age * 60
+            result["task_state"] = "working" if age < 1 else ("waiting" if age < 30 else "idle")
+        # Real Codex 5h/7d rate-limit windows — same shape Claude uses, so the
+        # device's inner/outer rings become meaningful instead of a fake 100%.
+        rl = await asyncio.to_thread(self._read_rate_limits)
+        if rl:
+            result["has_quota"] = True
+            result["usage_5h_pct"] = rl["five_hour_pct"]
+            result["usage_7d_pct"] = rl["seven_day_pct"]
+            result["usage_5h_display"] = f"{rl['five_hour_pct']}%"
+            result["usage_7d_display"] = f"{rl['seven_day_pct']}%"
+            result["rl_5h_reset"] = rl["five_hour_reset"]
+            result["rl_7d_reset"] = rl["seven_day_reset"]
+            result["usage_pct"] = rl["seven_day_pct"]   # outer ring = 7d
+            result["plan"] = rl["plan"]
+            result["rl_stale"] = rl["stale"]
         return result
+
+    def _read_rate_limits(self) -> dict | None:
+        """Real 5h/7d utilization from the vibe-island Codex cache. None if absent."""
+        path = Path.home() / ".vibe-island" / "cache" / "usage-persist-openai.json"
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+            mtime = path.stat().st_mtime
+        except (OSError, ValueError):
+            return None
+        fh = d.get("five_hour") or {}
+        sd = d.get("seven_day") or {}
+        plan = (d.get("metadata") or {}).get("codex.planType") or ""
+        fetched = d.get("fetched_at") or mtime
+        return {
+            "five_hour_pct": int(fh.get("used_percentage") or 0),
+            "seven_day_pct": int(sd.get("used_percentage") or 0),
+            "five_hour_reset": int(fh.get("resets_at") or 0),
+            "seven_day_reset": int(sd.get("resets_at") or 0),
+            "plan": plan.title() if plan else "",
+            "stale": (time.time() - float(fetched)) > 900,   # >15 min = stale
+        }
 
     def _find_latest_session(self) -> dict[str, Any] | None:
         sessions_dir = self._codex_dir / "sessions"

@@ -117,6 +117,8 @@ class ClaudeCodeCollector(BaseCollector):
             "task_state": "inactive",
             "task_state_display": "Inactive",
             "tasks": tasks,
+            "has_quota": False,
+            "last_activity": 0.0,
         }
         # File discovery + reads + parse are blocking; run them off the loop.
         session = await asyncio.to_thread(self._collect_sync)
@@ -124,6 +126,7 @@ class ClaudeCodeCollector(BaseCollector):
         if session:
             last_ts = session.pop("_last_ts", 0.0)
             result.update(session)
+        result["last_activity"] = last_ts
         state, disp = self._task_state(running, last_ts)
         result["task_state"] = state
         result["task_state_display"] = disp
@@ -148,6 +151,8 @@ class ClaudeCodeCollector(BaseCollector):
         out["usage_7d_display"] = f"{rl['seven_day_pct']}%"
         out["rl_5h_reset"] = rl["five_hour_reset"]
         out["rl_7d_reset"] = rl["seven_day_reset"]
+        out["has_quota"] = rl["present"]   # False → device renders N/A rings
+        out["rl_stale"] = rl["stale"]      # True → device dims rings / shows stale glyph
         # Outer ring = real 7-day window utilization.
         out["usage_pct"] = rl["seven_day_pct"]
         # Plan tier is kept in the payload for background use (limits, logic) but
@@ -157,23 +162,30 @@ class ClaudeCodeCollector(BaseCollector):
 
     def _read_rate_limits(self) -> dict:
         """Real 5h/7d window utilization from the vibe-island cache (the source
-        the Claude Code statusline uses). Zeros if the cache isn't present."""
+        the Claude Code statusline uses). Flags staleness so the device can stop
+        presenting hours-old quota as live. `present=False` if no cache at all."""
         for name in ("rl.json", "usage-persist-anthropic.json"):
+            p = self._home / ".vibe-island" / "cache" / name
             try:
-                d = json.loads((self._home / ".vibe-island" / "cache" / name)
-                               .read_text(encoding="utf-8"))
+                d = json.loads(p.read_text(encoding="utf-8"))
+                mtime = p.stat().st_mtime
             except (OSError, ValueError):
                 continue
             fh = d.get("five_hour") or {}
             sd = d.get("seven_day") or {}
+            # rl.json has no fetched_at; fall back to the file's mtime.
+            fetched = float(d.get("fetched_at") or mtime)
             return {
                 "five_hour_pct": int(fh.get("used_percentage") or 0),
                 "seven_day_pct": int(sd.get("used_percentage") or 0),
                 "five_hour_reset": int(fh.get("resets_at") or 0),
                 "seven_day_reset": int(sd.get("resets_at") or 0),
+                "present": True,
+                "stale": (time.time() - fetched) > 900,   # >15 min with no refresh
             }
         return {"five_hour_pct": 0, "seven_day_pct": 0,
-                "five_hour_reset": 0, "seven_day_reset": 0}
+                "five_hour_reset": 0, "seven_day_reset": 0,
+                "present": False, "stale": False}
 
     def _task_state(self, running: bool, last_ts: float) -> tuple[str, str]:
         if not running:

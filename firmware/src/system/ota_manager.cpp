@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>   // esp_restart()
 #include <mbedtls/sha256.h>
 #include "ota_pubkey.h"
 
@@ -235,7 +236,13 @@ bool ota_start_download() {
 
     state = OtaState::SUCCESS;
     Serial.printf("[OTA] Update to %s successful, rebooting...\n", info.version);
-    return true;
+    // Without this reboot the device keeps running the OLD image forever and the
+    // freshly-flashed partition is never booted. (Tier 2 will report ota_done to
+    // the host here before rebooting.)
+    Serial.flush();
+    delay(1500);          // let the SUCCESS state render + serial drain
+    esp_restart();        // boots into the new partition; ESP_OTA_IMG_PENDING_VERIFY confirmed in ota_init()
+    return true;          // not reached
 }
 
 void ota_loop() {

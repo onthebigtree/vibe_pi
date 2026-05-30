@@ -19,7 +19,13 @@ bool AXP2101::begin(int sda, int scl, uint8_t addr) {
         return false;
     }
     _present = true;
-    Serial.printf("[AXP2101] OK chip_id=0x%02X\n", id);
+    // Enable the VBAT voltage ADC channel (reg 0x30 bit0). Without this the
+    // 0x34/0x35 registers read 0/garbage, so the battery % and host health
+    // report were bogus. Read-modify-write to leave other ADC channels intact.
+    uint8_t adc = 0;
+    read_reg(0x30, &adc);
+    write_reg(0x30, adc | 0x01);
+    Serial.printf("[AXP2101] OK chip_id=0x%02X, VBAT ADC enabled\n", id);
     return true;
 }
 
@@ -30,6 +36,13 @@ bool AXP2101::read_reg(uint8_t reg, uint8_t *val) {
     if (Wire.requestFrom(_addr, (uint8_t)1) != 1) return false;
     *val = Wire.read();
     return true;
+}
+
+bool AXP2101::write_reg(uint8_t reg, uint8_t val) {
+    Wire.beginTransmission(_addr);
+    Wire.write(reg);
+    Wire.write(val);
+    return Wire.endTransmission() == 0;
 }
 
 bool AXP2101::read_reg16_be(uint8_t reg_hi, uint8_t reg_lo, uint16_t *val) {
@@ -59,8 +72,8 @@ uint8_t AXP2101::battery_percent() {
 bool AXP2101::is_charging() {
     if (!_present) return false;
     uint8_t st;
-    if (!read_reg(0x01, &st)) return false;  // PMU status
-    return (st & 0x04) != 0;  // bit 2 = charging
+    if (!read_reg(0x01, &st)) return false;          // PMU_STATUS2
+    return ((st >> 5) & 0x03) == 0x01;  // bits[6:5]: 01 = charging
 }
 
 bool AXP2101::vbus_present() {

@@ -316,9 +316,15 @@ void loop() {
         if (serial_transport_is_active()) {
             // Serial transport mode — no WS needed
             power_loop();
-            if (millis() - serial_transport_last_status() > STATUS_STALE_TIMEOUT_MS * 2
-                && serial_transport_last_status() > 0) {
-                // Serial link stale
+            if (serial_transport_last_status() > 0
+                && millis() - serial_transport_last_status() > STATUS_STALE_TIMEOUT_MS * 2) {
+                // USB host stopped sending status — drop the latch and fall back
+                // to WiFi/WS discovery instead of freezing on the last frame.
+                Serial.println("[App] Serial link stale — resetting transport");
+                serial_transport_reset();
+                set_state(AppState::RECONNECTING);
+                ui_show_reconnecting();
+                break;
             }
         } else {
             ws_client_loop();

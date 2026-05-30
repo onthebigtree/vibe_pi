@@ -1,5 +1,6 @@
 """Persistent device registry — tracks paired devices, names, settings."""
 
+import hmac
 import json
 import logging
 import time
@@ -126,7 +127,8 @@ class DeviceRegistry:
             d.paired = False
             self._save()
             return False
-        return d.pair_token == token
+        # Constant-time compare to avoid leaking the token via timing.
+        return bool(d.pair_token) and hmac.compare_digest(d.pair_token, token)
 
     def remove_device(self, device_id: str) -> bool:
         if device_id in self._devices:

@@ -16,6 +16,13 @@ void ui_show_dashboard();
 void ui_show_pairing(const char *code);
 void ui_show_safe_mode();
 
+// ── Utility screens (long-press dashboard → settings; settings → diag/OTA;
+// long-press any utility screen → back to dashboard, so the user is never trapped) ──
+void ui_open_settings();
+void ui_open_diagnostics();
+void ui_open_ota();
+void ui_open_dashboard();
+
 // ── Data updates ──
 void ui_update_status(JsonObject &payload);
 void ui_set_page(int page_index);

@@ -1,11 +1,16 @@
 #include "ui_manager.h"
 #include "theme.h"
 #include "notification.h"
+#include "settings_page.h"
+#include "ota_page.h"
+#include "diagnostic_page.h"
 #include "../display/display.h"
 #include "../system/i18n.h"
 #include "../system/settings_manager.h"
 #include "../system/watchdog.h"
 #include "../system/power_manager.h"
+#include "../network/ws_client.h"
+#include "../network/serial_config.h"
 #include "hal/board.h"
 #include "config.h"
 #include <math.h>
@@ -29,6 +34,10 @@ static lv_obj_t *scr_boot = nullptr;
 static lv_obj_t *scr_provision = nullptr;
 static lv_obj_t *scr_connecting = nullptr;
 static lv_obj_t *scr_dashboard = nullptr;
+// Utility screens, built lazily on first navigation (saves heap until needed).
+static lv_obj_t *scr_settings = nullptr;
+static lv_obj_t *scr_diag = nullptr;
+static lv_obj_t *scr_ota = nullptr;
 
 // ── Dashboard pages (embedded in tileview) ──
 static lv_obj_t *tv = nullptr;             // tileview for swipe navigation
@@ -46,6 +55,8 @@ static lv_obj_t *ov_lbl_model = nullptr;
 static lv_obj_t *ov_rd_7d = nullptr;       // top readout: 7d window "7d 9%"
 static lv_obj_t *ov_rd_5h = nullptr;       // top readout: 5h window "5h 92%"
 static lv_obj_t *ov_dot_indicators = nullptr;
+static lv_obj_t *ov_tag_7d = nullptr;      // ring identity label: outer = 7d
+static lv_obj_t *ov_tag_5h = nullptr;      // ring identity label: inner = 5h
 
 // ── Tool detail page widgets ──
 static lv_obj_t *td_lbl_title = nullptr;
@@ -57,6 +68,7 @@ static lv_obj_t *td_lbl_usage_pct = nullptr;
 
 // ── System page widgets ──
 static lv_obj_t *sys_arc_cpu = nullptr;
+static lv_obj_t *sys_arc_gpu = nullptr;
 static lv_obj_t *sys_arc_mem = nullptr;
 
 // ── Always-visible battery indicator (top-right of dashboard) ──
@@ -66,8 +78,9 @@ static lv_obj_t *battery_lbl = nullptr;
 static lv_obj_t *mini_tools_row = nullptr;
 static lv_obj_t *mini_tool_dots[6] = {nullptr};
 static lv_obj_t *sys_lbl_cpu = nullptr;
+static lv_obj_t *sys_lbl_gpu = nullptr;
 static lv_obj_t *sys_lbl_mem = nullptr;
-static lv_obj_t *sys_lbl_net = nullptr;
+static lv_obj_t *sys_lbl_net = nullptr;   // repurposed: temp + disk footer
 
 // ── State ──
 static int current_page = 0;
@@ -109,6 +122,7 @@ void ui_update_battery() {
 // Forward decl — defined alongside the spark builder further down, but used by
 // ui_cycle_tool() above it for instant recolor on tap.
 static void spark_set_color(lv_obj_t *spark, lv_color_t c);
+static void set_tool_icon(const char *tool, lv_color_t color);
 
 // De-dupe hash for ui_update_status, hoisted to module scope so ui_cycle_tool()
 // can invalidate it and force the next status to redraw even if the host data
@@ -160,11 +174,11 @@ void ui_cycle_tool() {
         lv_color_t c = theme_tool_color(selected_tool);
         lv_label_set_text(ov_lbl_tool, tool_display_name(selected_tool));
         lv_obj_set_style_text_color(ov_lbl_tool, c, 0);
-        spark_set_color(ov_spark, c);
+        set_tool_icon(selected_tool, c);
     }
     update_mini_dots();
-    lv_obj_invalidate(lv_screen_active());  // clean repaint, no partial-render ghosts
-    // Force the next status to redraw even if its data is unchanged.
+    // No full-screen invalidate needed: the rounder keeps per-widget partial
+    // redraws clean. Just force the next status to redraw even if data is same.
     g_force_status_redraw = true;
 
     // Ask host for an immediate status refresh so the new tool's data appears now
@@ -426,12 +440,10 @@ void ui_show_dashboard() {
         power_register_activity();
     }, LV_EVENT_CLICKED, nullptr);
 
-    // Long-press (500ms) to open settings page
+    // Long-press (500ms) opens the settings screen (→ diagnostics / OTA from there).
     lv_obj_add_event_cb(scr_dashboard, [](lv_event_t *e) {
         Serial.println("[GEST] long-press: open settings");
-        // Placeholder: cycle to next page as feedback for now
-        int next = (current_page + 1) % PAGE_COUNT;
-        ui_set_page(next);
+        ui_open_settings();
     }, LV_EVENT_LONG_PRESSED, nullptr);
 
     Serial.printf("[DBG] dashboard ready heap=%lu, loading screen\n", ESP.getFreeHeap());
@@ -459,23 +471,63 @@ static const char *PET_GRID[] = {
 #define PET_ROWS 9
 #define PET_COLS 14
 
-static lv_obj_t *build_claude_pet(lv_obj_t *parent, int cell) {
+// Per-tool pixel emblems, same blocky aesthetic as the Claude creature.
+// 'B' = body (recolored to the tool color), 'E' = eye (stays black), '.' = empty.
+struct PixelIcon { const char *const *grid; int rows; int cols; };
+
+// Codex → an OpenAI-style nested hexagonal "knot" (approximation).
+static const char *CODEX_GRID[] = {
+    ".BBBBBBB.",
+    "B.......B",
+    "B..BBB..B",
+    "B.B...B.B",
+    "B.B...B.B",
+    "B.B...B.B",
+    "B..BBB..B",
+    "B.......B",
+    ".BBBBBBB.",
+};
+// Gemini → a 4-point gem / sparkle.
+static const char *GEMINI_GRID[] = {
+    "....B....",
+    "...BBB...",
+    "..BBBBB..",
+    ".BBBBBBB.",
+    "BBBBBBBBB",
+    ".BBBBBBB.",
+    "..BBBBB..",
+    "...BBB...",
+    "....B....",
+};
+
+static const PixelIcon ICON_CLAUDE = { PET_GRID,    PET_ROWS, PET_COLS };
+static const PixelIcon ICON_CODEX  = { CODEX_GRID,  9, 9 };
+static const PixelIcon ICON_GEMINI = { GEMINI_GRID, 9, 9 };
+static const PixelIcon *g_current_icon = nullptr;   // currently-built emblem
+
+static const PixelIcon *icon_for_tool(const char *tool) {
+    if (tool && strstr(tool, "codex"))  return &ICON_CODEX;
+    if (tool && strstr(tool, "gemini")) return &ICON_GEMINI;
+    return &ICON_CLAUDE;   // claude_code + fallback
+}
+
+static lv_obj_t *build_pixel_icon(lv_obj_t *parent, const PixelIcon *ic, int cell) {
     lv_obj_t *cont = lv_obj_create(parent);
-    lv_obj_set_size(cont, PET_COLS * cell, PET_ROWS * cell);
+    lv_obj_set_size(cont, ic->cols * cell, ic->rows * cell);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cont, 0, 0);
     lv_obj_set_style_pad_all(cont, 0, 0);
     lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(cont, LV_OBJ_FLAG_CLICKABLE);
 
-    for (int r = 0; r < PET_ROWS; r++) {
-        const char *row = PET_GRID[r];
+    for (int r = 0; r < ic->rows; r++) {
+        const char *row = ic->grid[r];
         int c = 0;
-        while (c < PET_COLS) {
+        while (c < ic->cols) {
             char ch = row[c];
             if (ch == '.') { c++; continue; }
             int start = c;
-            while (c < PET_COLS && row[c] == ch) c++;   // extend run
+            while (c < ic->cols && row[c] == ch) c++;   // extend run
             int len = c - start;
             lv_obj_t *px = lv_obj_create(cont);
             lv_obj_set_size(px, len * cell, cell);
@@ -498,6 +550,11 @@ static lv_obj_t *build_claude_pet(lv_obj_t *parent, int cell) {
     return cont;
 }
 
+static lv_obj_t *build_claude_pet(lv_obj_t *parent, int cell) {
+    g_current_icon = &ICON_CLAUDE;
+    return build_pixel_icon(parent, &ICON_CLAUDE, cell);
+}
+
 // Recolor body cells (eyes stay black).
 static void spark_set_color(lv_obj_t *pet, lv_color_t c) {
     if (!pet) return;
@@ -514,32 +571,85 @@ static void pet_opa_cb(void *obj, int32_t v) {
 }
 
 static void start_spark_breath(lv_obj_t *pet) {
-    // Intentionally static. Any continuous animation here forces per-frame
-    // partial redraws whose flush artifacts accumulate as on-screen "花花" that
-    // only a full repaint clears. A still mascot keeps the screen clean with no
-    // periodic full-refresh needed.
-    (void)pet;
-    (void)pet_opa_cb;
+    // Gentle opacity breathing on the mascot. Now safe to animate: the CO5300
+    // invalidate-area rounder (display.cpp) keeps the small per-frame partial
+    // redraws of the mascot's bounding box clean, so no "花花" accumulates.
+    if (!pet) return;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, pet);
+    lv_anim_set_exec_cb(&a, pet_opa_cb);
+    lv_anim_set_values(&a, 150, 255);
+    lv_anim_set_duration(&a, 1400);
+    lv_anim_set_playback_duration(&a, 1400);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
 }
 
-// Smoothly animate an arc to a value — but ONLY for small deltas. A large sweep
-// invalidates the arc's huge bounding box every frame (the full-screen flush
-// that stalls this display), so snap instead.
+// Swap the centre emblem to the active tool's icon (rebuild only when it
+// actually changes — infrequent), then tint it to the tool color.
+static void set_tool_icon(const char *tool, lv_color_t color) {
+    const PixelIcon *ic = icon_for_tool(tool);
+    if (ic != g_current_icon && ov_spark) {
+        lv_anim_delete(ov_spark, nullptr);   // drop the old breath anim first
+        lv_obj_delete(ov_spark);
+        ov_spark = build_pixel_icon(tile_overview, ic, 4);
+        lv_obj_align(ov_spark, LV_ALIGN_CENTER, 0, -116);
+        start_spark_breath(ov_spark);
+        g_current_icon = ic;
+    }
+    spark_set_color(ov_spark, color);
+}
+
+// Smoothly animate an arc to its new value. Clean now that dirty rects are
+// aligned by the rounder — a moving ring no longer smears.
 static void arc_anim_exec(void *obj, int32_t v) { lv_arc_set_value((lv_obj_t *)obj, v); }
 
 static void arc_anim_to(lv_obj_t *arc, int32_t target) {
-    // Direct set — no animation. Continuous arc animation drives repeated partial
-    // redraws which accumulate flush artifacts ("花花") on this hold-type AMOLED.
-    if (arc) lv_arc_set_value(arc, target);
-    (void)arc_anim_exec;
+    if (!arc) return;
+    int32_t cur = lv_arc_get_value(arc);
+    if (cur == target) return;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, arc);
+    lv_anim_set_exec_cb(&a, arc_anim_exec);
+    lv_anim_set_values(&a, cur, target);
+    lv_anim_set_duration(&a, 600);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
 }
 
-// Continuous fuel gauge color by REMAINING %: smooth red(0)→amber→green(100),
-// so every percentage point has a distinct hue (no threshold steps).
+// Calm gauge color. The arc LENGTH already conveys "how much is left", so the
+// fill stays a quiet cool-white in the healthy range (no green glare — bright
+// saturated greens bloom badly on this AMOLED). Color is reserved for WARNING:
+// amber when low, red when nearly empty. Used by the system gauges.
 static lv_color_t fuel_color(int rem) {
     if (rem < 0) rem = 0; else if (rem > 100) rem = 100;
-    uint16_t h = (uint16_t)(rem * 120 / 100);   // 0°=red (empty) … 120°=green (full)
-    return lv_color_hsv_to_rgb(h, 85, 100);
+    if (rem < 15) return lv_color_hex(0xCE5648);   // red — nearly empty
+    if (rem < 30) return lv_color_hex(0xF0A024);   // amber — distinct from the calm resting tone
+    return lv_color_hex(0xC4CCDA);                 // calm cool white — toned down to limit AMOLED bloom
+}
+
+// Overview ring color. Same calm/warn logic, but the two concentric rings get
+// DISTINCT identities so they're never confused: the inner 5h ring (the hero,
+// tighter limit) is a bright cool white; the outer 7d ring is a dim slate. Both
+// turn amber/red together when low.
+static lv_color_t ring_color(int rem, bool hero) {
+    if (rem < 0) rem = 0; else if (rem > 100) rem = 100;
+    if (rem < 15) return lv_color_hex(0xCE5648);   // red — nearly empty
+    if (rem < 30) return lv_color_hex(0xF0A024);   // amber — running low
+    return hero ? lv_color_hex(0xC4CCDA)           // inner 5h: cool white (toned to limit bloom)
+                : lv_color_hex(0x7A8A9A);          // outer 7d: slate (brightened so it reads on black)
+}
+
+// Compact reset countdown: 5h window → "1h 44m"; 7d window → "4d 6h".
+static void fmt_reset(uint32_t secs, char *buf, size_t n) {
+    if (secs == 0) { snprintf(buf, n, "--"); return; }
+    uint32_t d = secs / 86400, h = (secs % 86400) / 3600, m = (secs % 3600) / 60;
+    if (d > 0)      snprintf(buf, n, "%lud %luh", (unsigned long)d, (unsigned long)h);
+    else if (h > 0) snprintf(buf, n, "%luh %lum", (unsigned long)h, (unsigned long)m);
+    else            snprintf(buf, n, "%lum", (unsigned long)m);
 }
 
 // ── Overview page ──
@@ -547,65 +657,95 @@ static lv_color_t fuel_color(int rem) {
 static void create_overview_tile() {
     // Outer arc (usage)
     ov_arc_main = lv_arc_create(tile_overview);
-    lv_obj_set_size(ov_arc_main, ARC_OUTER_SIZE, ARC_OUTER_SIZE);
+    lv_obj_set_size(ov_arc_main, 412, 412);          // r=206 OUTER ring = 7d, gap at bottom
     lv_arc_set_rotation(ov_arc_main, 135);
     lv_arc_set_bg_angles(ov_arc_main, 0, 270);
     lv_arc_set_range(ov_arc_main, 0, 100);
     lv_arc_set_value(ov_arc_main, 0);
     lv_obj_remove_flag(ov_arc_main, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(ov_arc_main, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_arc_color(ov_arc_main, CLR_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ov_arc_main, lv_color_hex(0x242730), LV_PART_MAIN);   // subtle track (reads as a gauge, not void)
     lv_obj_set_style_arc_color(ov_arc_main, CLR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(ov_arc_main, 10, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ov_arc_main, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ov_arc_main, 8, LV_PART_MAIN);    // outer 7d: thin
+    lv_obj_set_style_arc_width(ov_arc_main, 8, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(ov_arc_main, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(ov_arc_main, true, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ov_arc_main, LV_OPA_TRANSP, LV_PART_KNOB);   // hide slider knob dot
     lv_obj_center(ov_arc_main);
 
     // Inner ring = 5h window (the tighter, more urgent limit). Concentric,
     // slightly smaller; colored by severity in ui_update_status.
     ov_arc_5h = lv_arc_create(tile_overview);
-    lv_obj_set_size(ov_arc_5h, 300, 300);   // r≈150 vs outer r≈200 → ~50px band for the 7d readout
+    lv_obj_set_size(ov_arc_5h, 366, 366);            // r=183 INNER ring = 5h, hugs the outer 7d ring (~14px gap)
     lv_arc_set_rotation(ov_arc_5h, 135);
     lv_arc_set_bg_angles(ov_arc_5h, 0, 270);
     lv_arc_set_range(ov_arc_5h, 0, 100);
     lv_arc_set_value(ov_arc_5h, 0);
     lv_obj_remove_flag(ov_arc_5h, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(ov_arc_5h, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_arc_color(ov_arc_5h, CLR_SURFACE_ALT, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ov_arc_5h, lv_color_hex(0x242730), LV_PART_MAIN);   // subtle track
     lv_obj_set_style_arc_color(ov_arc_5h, CLR_SUCCESS, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(ov_arc_5h, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ov_arc_5h, 10, LV_PART_MAIN);   // inner 5h: slightly bolder than 7d
     lv_obj_set_style_arc_width(ov_arc_5h, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(ov_arc_5h, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(ov_arc_5h, true, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ov_arc_5h, LV_OPA_TRANSP, LV_PART_KNOB);   // hide slider knob dot
     lv_obj_center(ov_arc_5h);
 
-    // Top readouts — the two ring windows, big and colored by usage level.
-    // "7d" (outer ring) sits above "5h" (inner ring), mirroring the ring order.
-    // 7d readout NESTED in the outer ring's band (between the two arcs, top) so
-    // it visually belongs to the outer ring. 5h readout sits just inside the
-    // inner ring — each number maps to its own ring.
+    // Top readouts sit in each ring's TOP GAP (where there is no arc), so the
+    // energy bar can never cover the number and the text is on clean black.
+    // "7d" (outer) above "5h" (inner), mirroring the ring order. Format:
+    // "<rem>% (<reset> / <window>)", e.g. "57% (1h 44m / 5h)" — recolor makes
+    // the % bright and the reset/window detail muted.
+    // HERO = 5h remaining, big, centred (within the clear inner zone).
+    // HERO = 5h remaining %, big, centred. White when healthy, amber/red when low.
+    ov_rd_5h = lv_label_create(tile_overview);
+    lv_label_set_recolor(ov_rd_5h, true);
+    lv_label_set_text(ov_rd_5h, "");
+    lv_obj_set_style_text_font(ov_rd_5h, &lv_font_montserrat_48, 0);   // focal point
+    lv_obj_set_style_text_align(ov_rd_5h, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(ov_rd_5h, lv_color_hex(0xE8EAED), 0);   // near-white, not hot-white (less glare)
+    lv_obj_align(ov_rd_5h, LV_ALIGN_CENTER, 0, -16);
+
+    // ov_rd_7d is no longer shown in the centre (7d% moved onto its ring tag to
+    // declutter). Kept allocated/empty so older code paths stay null-safe.
     ov_rd_7d = lv_label_create(tile_overview);
     lv_label_set_text(ov_rd_7d, "");
-    lv_obj_set_style_text_font(ov_rd_7d, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(ov_rd_7d, CLR_TEXT_MUTED, 0);
-    lv_obj_align(ov_rd_7d, LV_ALIGN_CENTER, 0, -174);   // outer-ring band (7d)
+    lv_obj_add_flag(ov_rd_7d, LV_OBJ_FLAG_HIDDEN);
 
-    ov_rd_5h = lv_label_create(tile_overview);
-    lv_label_set_text(ov_rd_5h, "");
-    lv_obj_set_style_text_font(ov_rd_5h, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(ov_rd_5h, CLR_TEXT_MUTED, 0);
-    lv_obj_align(ov_rd_5h, LV_ALIGN_CENTER, 0, -120);   // just inside inner ring (5h)
+    // 7d label sits AT THE TOP of the outer ring (12 o'clock) with a black backing
+    // that notches the arc, so it reads as a complication belonging to the 7d ring
+    // — not floating between the bands. The 5h window needs no side tag (it is the
+    // hero number + "5h left" sub-line + bright inner ring). Created after the arcs
+    // so the backing draws on top and cleanly cuts the stroke.
+    ov_tag_7d = lv_label_create(tile_overview);
+    lv_label_set_recolor(ov_tag_7d, true);
+    lv_label_set_text(ov_tag_7d, "7d");
+    lv_obj_set_style_text_font(ov_tag_7d, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_align(ov_tag_7d, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(ov_tag_7d, lv_color_hex(0x7A8A9A), 0);
+    lv_obj_set_style_bg_color(ov_tag_7d, lv_color_hex(0x000000), 0);   // notch out the arc behind it
+    lv_obj_set_style_bg_opa(ov_tag_7d, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(ov_tag_7d, 7, 0);
+    lv_obj_set_style_pad_ver(ov_tag_7d, 2, 0);
+    lv_obj_align(ov_tag_7d, LV_ALIGN_CENTER, 0, -202);   // on the outer-ring stroke centerline: (412-8)/2
+
+    ov_tag_5h = lv_label_create(tile_overview);   // retained for null-safety; unused
+    lv_label_set_text(ov_tag_5h, "");
+    lv_obj_add_flag(ov_tag_5h, LV_OBJ_FLAG_HIDDEN);
 
     // Claude Code pixel mascot — centered, static (no animation → no flush ghosts).
-    ov_spark = build_claude_pet(tile_overview, 6);   // 14×9 grid → 84×54 px
-    lv_obj_align(ov_spark, LV_ALIGN_CENTER, 0, -48);
+    ov_spark = build_claude_pet(tile_overview, 4);   // small identity emblem, top of the dial
+    lv_obj_align(ov_spark, LV_ALIGN_CENTER, 0, -120);
     start_spark_breath(ov_spark);
 
-    // Tool name (ASCII → large Montserrat)
+    // Tool name (ASCII → large Montserrat). Muted gray so it stays calm — the
+    // colored mascot + dot row carry the brand identity.
     ov_lbl_tool = lv_label_create(tile_overview);
     lv_label_set_text(ov_lbl_tool, "Idle");
-    lv_obj_set_style_text_color(ov_lbl_tool, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_text_font(ov_lbl_tool, &lv_font_montserrat_28, 0);
-    lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, 22);
+    lv_obj_set_style_text_color(ov_lbl_tool, lv_color_hex(0xB3B8C0), 0);   // secondary pillar
+    lv_obj_set_style_text_font(ov_lbl_tool, &lv_font_montserrat_20, 0);    // mid-tier (48 hero → 20 name → 16 details)
+    lv_obj_align(ov_lbl_tool, LV_ALIGN_CENTER, 0, -92);   // identity, top of dial
 
     // Big invisible tap target over the entire top half of the tile — taps cycle tools.
     // Sits ABOVE all other widgets, but doesn't block tileview drag (we forward release
@@ -626,24 +766,25 @@ static void create_overview_tile() {
         ui_cycle_tool();
     }, LV_EVENT_PRESSED, nullptr);
 
-    // Model + plan (secondary line under the tool name)
+    // Sub-line under the hero: "5h left" (muted) + reset countdown (secondary).
     ov_lbl_model = lv_label_create(tile_overview);
+    lv_label_set_recolor(ov_lbl_model, true);
     lv_label_set_text(ov_lbl_model, "");
     lv_obj_set_style_text_color(ov_lbl_model, CLR_TEXT_SECONDARY, 0);
     lv_obj_set_style_text_font(ov_lbl_model, &lv_font_montserrat_16, 0);
-    lv_obj_align(ov_lbl_model, LV_ALIGN_CENTER, 0, 50);
+    lv_obj_align(ov_lbl_model, LV_ALIGN_CENTER, 0, 34);
 
     // Task-state badge (+ running session count)
     ov_lbl_status = lv_label_create(tile_overview);
     lv_label_set_text(ov_lbl_status, "");
     lv_obj_set_style_text_color(ov_lbl_status, CLR_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(ov_lbl_status, &lv_font_montserrat_16, 0);
-    lv_obj_align(ov_lbl_status, LV_ALIGN_CENTER, 0, 78);
+    lv_obj_align(ov_lbl_status, LV_ALIGN_CENTER, 0, 72);   // task badge
 
     // Mini-tool dot row: one colored dot per active AI tool
     mini_tools_row = lv_obj_create(tile_overview);
     lv_obj_set_size(mini_tools_row, 200, 20);
-    lv_obj_align(mini_tools_row, LV_ALIGN_CENTER, 0, 104);
+    lv_obj_align(mini_tools_row, LV_ALIGN_CENTER, 0, 112);   // bottom gap, below the badge
     lv_obj_set_style_bg_opa(mini_tools_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(mini_tools_row, 0, 0);
     lv_obj_set_style_pad_all(mini_tools_row, 0, 0);
@@ -681,15 +822,15 @@ static void create_detail_tile() {
     lv_arc_set_value(td_arc_usage, 0);
     lv_obj_remove_flag(td_arc_usage, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(td_arc_usage, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_arc_color(td_arc_usage, CLR_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(td_arc_usage, lv_color_hex(0x242730), LV_PART_MAIN);   // match calm track
     lv_obj_set_style_arc_color(td_arc_usage, CLR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(td_arc_usage, 6, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(td_arc_usage, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(td_arc_usage, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(td_arc_usage, 8, LV_PART_INDICATOR);
     lv_obj_align(td_arc_usage, LV_ALIGN_CENTER, 0, -20);
 
     td_lbl_usage_pct = lv_label_create(tile_tool_detail);
     lv_label_set_text(td_lbl_usage_pct, "0%");
-    lv_obj_set_style_text_color(td_lbl_usage_pct, CLR_TEXT_PRIMARY, 0);
+    lv_obj_set_style_text_color(td_lbl_usage_pct, lv_color_hex(0xE8EAED), 0);
     lv_obj_set_style_text_font(td_lbl_usage_pct, FONT_TITLE, 0);
     lv_obj_align(td_lbl_usage_pct, LV_ALIGN_CENTER, 0, -20);
 
@@ -725,55 +866,50 @@ static lv_obj_t *create_gauge_arc(lv_obj_t *parent, int x, int y, int size, lv_c
     lv_obj_remove_flag(arc, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_arc_color(arc, CLR_BORDER, LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(arc, 5, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 9, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 9, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, true, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x242730), LV_PART_MAIN);   // match overview track
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);   // hide slider knob dot
     lv_obj_align(arc, LV_ALIGN_CENTER, x, y);
     return arc;
 }
 
+// One gauge of the computer-stats triangle: ring + centred % + name below.
+static void make_sys_gauge(lv_obj_t **arc, lv_obj_t **val, const char *name, int x, int y) {
+    *arc = create_gauge_arc(tile_system, x, y, 108, CLR_ACCENT);   // r≈54
+    *val = lv_label_create(tile_system);
+    lv_label_set_text(*val, "--");
+    lv_obj_set_style_text_color(*val, lv_color_hex(0xE8EAED), 0);   // near-white, matches overview hero
+    lv_obj_set_style_text_font(*val, &lv_font_montserrat_20, 0);
+    lv_obj_align(*val, LV_ALIGN_CENTER, x, y);
+    lv_obj_t *nm = lv_label_create(tile_system);
+    lv_label_set_text(nm, name);
+    lv_obj_set_style_text_color(nm, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
+    lv_obj_align(nm, LV_ALIGN_CENTER, x, y + 64);   // below the ring
+}
+
 static void create_system_tile() {
     lv_obj_t *title = lv_label_create(tile_system);
-    lv_label_set_text(title, "System");
-    lv_obj_set_style_text_color(title, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_text_font(title, FONT_LARGE, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 80);
+    lv_label_set_text(title, "SYSTEM");
+    lv_obj_set_style_text_color(title, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 60);
 
-    // CPU gauge
-    sys_arc_cpu = create_gauge_arc(tile_system, -70, -20, 140, CLR_ACCENT);
-    sys_lbl_cpu = lv_label_create(tile_system);
-    lv_label_set_text(sys_lbl_cpu, "0%");
-    lv_obj_set_style_text_color(sys_lbl_cpu, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_text_font(sys_lbl_cpu, FONT_LARGE, 0);
-    lv_obj_align(sys_lbl_cpu, LV_ALIGN_CENTER, -70, -20);
+    // Three gauges in a triangle: CPU upper-left, GPU upper-right, MEM lower-centre.
+    make_sys_gauge(&sys_arc_cpu, &sys_lbl_cpu, "CPU", -98, -48);
+    make_sys_gauge(&sys_arc_gpu, &sys_lbl_gpu, "GPU",  98, -48);
+    make_sys_gauge(&sys_arc_mem, &sys_lbl_mem, "MEM",   0,  72);
 
-    lv_obj_t *cpu_label = lv_label_create(tile_system);
-    lv_label_set_text(cpu_label, "CPU");
-    lv_obj_set_style_text_color(cpu_label, CLR_TEXT_MUTED, 0);
-    lv_obj_set_style_text_font(cpu_label, FONT_SMALL, 0);
-    lv_obj_align(cpu_label, LV_ALIGN_CENTER, -70, 10);
-
-    // Memory gauge
-    sys_arc_mem = create_gauge_arc(tile_system, 70, -20, 140, CLR_WARNING);
-    sys_lbl_mem = lv_label_create(tile_system);
-    lv_label_set_text(sys_lbl_mem, "0%");
-    lv_obj_set_style_text_color(sys_lbl_mem, CLR_TEXT_PRIMARY, 0);
-    lv_obj_set_style_text_font(sys_lbl_mem, FONT_LARGE, 0);
-    lv_obj_align(sys_lbl_mem, LV_ALIGN_CENTER, 70, -20);
-
-    lv_obj_t *mem_label = lv_label_create(tile_system);
-    lv_label_set_text(mem_label, "MEM");
-    lv_obj_set_style_text_color(mem_label, CLR_TEXT_MUTED, 0);
-    lv_obj_set_style_text_font(mem_label, FONT_SMALL, 0);
-    lv_obj_align(mem_label, LV_ALIGN_CENTER, 70, 10);
-
-    // Network
+    // Footer: temperature + disk.
     sys_lbl_net = lv_label_create(tile_system);
     lv_label_set_text(sys_lbl_net, "");
-    lv_obj_set_style_text_color(sys_lbl_net, CLR_TEXT_SECONDARY, 0);
-    lv_obj_set_style_text_font(sys_lbl_net, FONT_SMALL, 0);
+    lv_obj_set_style_text_color(sys_lbl_net, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(sys_lbl_net, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_align(sys_lbl_net, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(sys_lbl_net, LV_ALIGN_CENTER, 0, 90);
+    lv_obj_align(sys_lbl_net, LV_ALIGN_CENTER, 0, 184);
 }
 
 // ── Dot indicators ──
@@ -878,19 +1014,19 @@ void ui_update_status(JsonObject &payload) {
 
         current_tool_color = theme_tool_color(activeTool);
 
-        // 5h window % + its severity color (shared by the inner ring and the
-        // color-coded "5h" label below).
+        // 5h window % + the inner-ring color (bright cool white, warns when low).
         int p5 = tool["p5"] | 0;
-        lv_color_t c5 = fuel_color(100 - p5);   // gradient by 5h remaining
+        lv_color_t c5 = ring_color(100 - p5, true);
 
         // Display name mapping
         const char *displayName = tool_display_name(activeTool);
 
+        // Name is a calm secondary pillar; the colored mascot + dot row carry brand.
         lv_label_set_text(ov_lbl_tool, displayName);
-        lv_obj_set_style_text_color(ov_lbl_tool, current_tool_color, 0);
+        lv_obj_set_style_text_color(ov_lbl_tool, lv_color_hex(0xB3B8C0), 0);
 
-        // Spark: recolor to the active tool, ensure it's visible.
-        spark_set_color(ov_spark, current_tool_color);
+        // Emblem: swap to the active tool's icon + recolor, ensure visible.
+        set_tool_icon(activeTool, current_tool_color);
         if (ov_spark) lv_obj_remove_flag(ov_spark, LV_OBJ_FLAG_HIDDEN);
 
         // Task-state badge: Working / Waiting / Idle + how many CLI sessions run.
@@ -898,14 +1034,17 @@ void ui_update_status(JsonObject &payload) {
         const char *status = tool["status"] | "unknown";
         int tasks = tool["tasks"] | 0;
         const char *sym; const char *word; lv_color_t badgeCol;
-        if (strcmp(taskState, "working") == 0)      { sym = LV_SYMBOL_PLAY;  word = "Working"; badgeCol = CLR_SUCCESS; }
-        else if (strcmp(taskState, "waiting") == 0) { sym = LV_SYMBOL_OK;    word = "Waiting"; badgeCol = CLR_WARNING; }
+        // Calm, low-glare badge colors (soft green / muted gold / gray).
+        const lv_color_t COL_WORK = lv_color_hex(0x5FA878);
+        const lv_color_t COL_WAIT = lv_color_hex(0xC8A86A);
+        if (strcmp(taskState, "working") == 0)      { sym = LV_SYMBOL_PLAY;  word = "Working"; badgeCol = COL_WORK; }
+        else if (strcmp(taskState, "waiting") == 0) { sym = LV_SYMBOL_OK;    word = "Waiting"; badgeCol = COL_WAIT; }
         else if (strcmp(taskState, "idle") == 0)    { sym = LV_SYMBOL_PAUSE; word = "Idle";    badgeCol = CLR_TEXT_MUTED; }
         else {
             bool act = (strcmp(status, "active") == 0);
             sym = act ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE;
             word = act ? "Active" : "Idle";
-            badgeCol = act ? CLR_SUCCESS : CLR_TEXT_MUTED;
+            badgeCol = act ? COL_WORK : CLR_TEXT_MUTED;
         }
         if (tasks > 1)
             lv_label_set_text_fmt(ov_lbl_status, "%s %s    %d running", sym, word, tasks);
@@ -913,25 +1052,68 @@ void ui_update_status(JsonObject &payload) {
             lv_label_set_text_fmt(ov_lbl_status, "%s %s", sym, word);
         lv_obj_set_style_text_color(ov_lbl_status, badgeCol, 0);
 
-        const char *model = tool["model"] | "";
-        lv_label_set_text(ov_lbl_model, model);
-
-        // Rings show REMAINING quota (fuel-gauge): full = plenty left, empty =
-        // nearly out. Numbers are the remaining %. Color still by severity
-        // (little left = red), so low fuel reads as urgent.
+        // Rings show REMAINING quota (fuel gauge). HERO = 5h remaining (big,
+        // centred); SECONDARY = 7d remaining + reset (small, below). The
+        // "5h left · resets …" sub-line repurposes ov_lbl_model.
         int usagePct = tool["usage_pct"] | 0;   // 7d used
         int rem7 = 100 - usagePct;              // 7d remaining
         int rem5 = 100 - p5;                    // 5h remaining
-        lv_color_t c7 = fuel_color(rem7);       // gradient by 7d remaining
-        lv_label_set_text_fmt(ov_rd_7d, "7d  %d%%", rem7);
-        lv_obj_set_style_text_color(ov_rd_7d, c7, 0);
-        lv_label_set_text_fmt(ov_rd_5h, "5h  %d%%", rem5);
-        lv_obj_set_style_text_color(ov_rd_5h, c5, 0);
+        int hasQuota = tool["hq"] | 0;          // 0 → no real 5h/7d source
+        int stale    = tool["st"] | 0;          // 1 → cache stale (>15 min)
 
-        arc_anim_to(ov_arc_main, rem7);
-        lv_obj_set_style_arc_color(ov_arc_main, c7, LV_PART_INDICATOR);
-        arc_anim_to(ov_arc_5h, rem5);
-        lv_obj_set_style_arc_color(ov_arc_5h, c5, LV_PART_INDICATOR);
+        uint32_t r5secs = tool["r5"] | 0;   // seconds until 5h reset
+        uint32_t r7secs = tool["r7"] | 0;   // seconds until 7d reset
+
+        if (!hasQuota) {
+            // No per-account quota source → honest "--", faint gray rings.
+            lv_label_set_text(ov_rd_5h, "--");
+            lv_label_set_text(ov_lbl_model, "no quota data");
+            lv_obj_set_style_text_color(ov_lbl_model, CLR_TEXT_SECONDARY, 0);
+            lv_label_set_text(ov_tag_7d, "#55585F 7d#  --");
+            lv_obj_set_style_text_color(ov_rd_5h, CLR_TEXT_MUTED, 0);
+            lv_obj_set_style_text_color(ov_tag_7d, CLR_TEXT_MUTED, 0);
+            lv_obj_set_style_arc_opa(ov_arc_main, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_opa(ov_arc_5h, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_color(ov_arc_main, CLR_BORDER, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_color(ov_arc_5h, CLR_BORDER, LV_PART_INDICATOR);
+            arc_anim_to(ov_arc_main, 0);
+            arc_anim_to(ov_arc_5h, 0);
+        } else {
+            char cd5[16], cd7[16];
+            fmt_reset(r5secs, cd5, sizeof(cd5));
+            fmt_reset(r7secs, cd7, sizeof(cd7));
+            // HERO: 5h remaining %, big. Near-white when healthy (brighter than
+            // the ring so the number reads as the focal point), amber/red when low.
+            lv_color_t heroCol = stale ? CLR_TEXT_MUTED
+                                       : (rem5 < 30 ? ring_color(rem5, true) : lv_color_hex(0xE8EAED));
+            lv_label_set_text_fmt(ov_rd_5h, "%d%%%s", rem5, stale ? " *" : "");
+            lv_obj_set_style_text_color(ov_rd_5h, heroCol, 0);
+
+            // One-shot low-quota toast: fire once when 5h drops to ≤10%, re-arm
+            // only after it recovers above 20% (hysteresis → no spam every update).
+            static bool warned_low_5h = false;
+            if (!stale && rem5 <= 10 && !warned_low_5h) {
+                notif_show("5h quota low", NotifType::WARNING, 4000);
+                warned_low_5h = true;
+            } else if (rem5 > 20) {
+                warned_low_5h = false;
+            }
+
+            // Sub-line: one calm line — what window + when it resets.
+            lv_label_set_text_fmt(ov_lbl_model, "5h left    resets %s", cd5);
+            lv_obj_set_style_text_color(ov_lbl_model, CLR_TEXT_SECONDARY, 0);
+            // 7d label notched into the top of the outer ring: faint "7d" + value.
+            lv_label_set_text_fmt(ov_tag_7d, "#55585F 7d#  %d%%", rem7);
+            lv_obj_set_style_text_color(ov_tag_7d, ring_color(rem7, false), 0);
+            (void)cd7;
+            lv_opa_t bandOpa = stale ? LV_OPA_50 : LV_OPA_COVER;
+            lv_obj_set_style_arc_opa(ov_arc_main, bandOpa, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_opa(ov_arc_5h, bandOpa, LV_PART_INDICATOR);
+            arc_anim_to(ov_arc_main, rem7);
+            lv_obj_set_style_arc_color(ov_arc_main, ring_color(rem7, false), LV_PART_INDICATOR);
+            arc_anim_to(ov_arc_5h, rem5);
+            lv_obj_set_style_arc_color(ov_arc_5h, c5, LV_PART_INDICATOR);
+        }
 
         // -- Update detail page --
         if (td_lbl_title) {
@@ -940,7 +1122,9 @@ void ui_update_status(JsonObject &payload) {
         }
         if (td_arc_usage) {
             arc_anim_to(td_arc_usage, usagePct);
-            lv_obj_set_style_arc_color(td_arc_usage, current_tool_color, LV_PART_INDICATOR);
+            // Calm fuel color (cool-white, warns red as usage climbs) — no bloomy
+            // brand-orange ring; consistent with the overview/system gauges.
+            lv_obj_set_style_arc_color(td_arc_usage, fuel_color(100 - usagePct), LV_PART_INDICATOR);
         }
         if (td_lbl_usage_pct) lv_label_set_text_fmt(td_lbl_usage_pct, "%d%%", usagePct);
 
@@ -958,11 +1142,11 @@ void ui_update_status(JsonObject &payload) {
 
     } else {
         lv_label_set_text(ov_lbl_tool, "Idle");
-        lv_obj_set_style_text_color(ov_lbl_tool, CLR_TEXT_PRIMARY, 0);
+        lv_obj_set_style_text_color(ov_lbl_tool, lv_color_hex(0xB3B8C0), 0);
         lv_label_set_text(ov_lbl_status, "No active tools");
         lv_obj_set_style_text_color(ov_lbl_status, CLR_TEXT_MUTED, 0);
         lv_label_set_text(ov_lbl_model, "");
-        if (ov_rd_7d) lv_label_set_text(ov_rd_7d, "");
+        if (ov_tag_7d) { lv_label_set_text(ov_tag_7d, "7d"); lv_obj_set_style_text_color(ov_tag_7d, CLR_TEXT_MUTED, 0); }
         if (ov_rd_5h) lv_label_set_text(ov_rd_5h, "");
         if (ov_spark) lv_obj_add_flag(ov_spark, LV_OBJ_FLAG_HIDDEN);
         lv_arc_set_value(ov_arc_main, 0);
@@ -979,29 +1163,80 @@ void ui_update_status(JsonObject &payload) {
     // -- Update system page --
     JsonObject sys = payload["system"];
     if (!sys.isNull()) {
-        int cpu = sys["cpu_pct"] | 0;
-        int mem = sys["mem_pct"] | 0;
+        int cpu  = sys["cpu_pct"]  | 0;
+        int mem  = sys["mem_pct"]  | 0;
+        int gpu  = sys["gpu_pct"]  | -1;   // -1 = N/A
+        int temp = sys["temp_c"]   | -1;   // -1 = N/A
+        int disk = sys["disk_pct"] | 0;
 
-        lv_arc_set_value(sys_arc_cpu, cpu);
+        // Usage gauges: green (low) → red (high) via the fuel gradient on (100-usage).
+        arc_anim_to(sys_arc_cpu, cpu);
         lv_label_set_text_fmt(sys_lbl_cpu, "%d%%", cpu);
-        if (cpu > 80) lv_obj_set_style_arc_color(sys_arc_cpu, CLR_ERROR, LV_PART_INDICATOR);
-        else if (cpu > 60) lv_obj_set_style_arc_color(sys_arc_cpu, CLR_WARNING, LV_PART_INDICATOR);
-        else lv_obj_set_style_arc_color(sys_arc_cpu, CLR_ACCENT, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(sys_arc_cpu, fuel_color(100 - cpu), LV_PART_INDICATOR);
 
-        lv_arc_set_value(sys_arc_mem, mem);
+        arc_anim_to(sys_arc_mem, mem);
         lv_label_set_text_fmt(sys_lbl_mem, "%d%%", mem);
+        lv_obj_set_style_arc_color(sys_arc_mem, fuel_color(100 - mem), LV_PART_INDICATOR);
 
-        int netUp = sys["net_up_kbps"] | 0;
-        int netDown = sys["net_down_kbps"] | 0;
-        lv_label_set_text_fmt(sys_lbl_net, LV_SYMBOL_UPLOAD " %d KB/s    " LV_SYMBOL_DOWNLOAD " %d KB/s", netUp, netDown);
+        if (gpu >= 0) {
+            arc_anim_to(sys_arc_gpu, gpu);
+            lv_label_set_text_fmt(sys_lbl_gpu, "%d%%", gpu);
+            lv_obj_set_style_arc_color(sys_arc_gpu, fuel_color(100 - gpu), LV_PART_INDICATOR);
+        } else {
+            arc_anim_to(sys_arc_gpu, 0);
+            lv_label_set_text(sys_lbl_gpu, "--");
+            lv_obj_set_style_arc_color(sys_arc_gpu, CLR_BORDER, LV_PART_INDICATOR);
+        }
+
+        // Footer: temperature (— if unavailable, e.g. macOS without a sensor tool) + disk.
+        if (temp >= 0) lv_label_set_text_fmt(sys_lbl_net, "temp %dC      disk %d%%", temp, disk);
+        else           lv_label_set_text_fmt(sys_lbl_net, "temp --      disk %d%%", disk);
     }
 
-    // Repaint the whole screen in the SAME render pass that applied these
-    // changes. On this hold-type AMOLED a bare partial redraw leaves stale
-    // pixels ("花花"); doing a full invalidate right after the (infrequent)
-    // content change overwrites them before they're ever shown — clean, and no
-    // blind periodic flash since the screen is otherwise static.
-    lv_obj_invalidate(lv_screen_active());
+    // The CO5300 invalidate-area rounder (display.cpp) aligns every dirty rect
+    // to the panel's even/odd window requirement, so LVGL's own per-widget
+    // partial redraws are clean — no full-screen invalidate workaround needed.
+}
+
+// ── Utility-screen navigation ──
+// Long-press on any utility screen returns home, so the user can never get stuck.
+static void util_back_cb(lv_event_t *e) { ui_open_dashboard(); }
+
+static lv_obj_t *make_util_screen(lv_obj_t *(*builder)(lv_obj_t *)) {
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, CLR_BG, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    builder(scr);
+    lv_obj_add_event_cb(scr, util_back_cb, LV_EVENT_LONG_PRESSED, nullptr);
+    return scr;
+}
+
+void ui_open_settings() {
+    if (!scr_settings) scr_settings = make_util_screen(settings_page_create);
+    settings_page_refresh();
+    lv_screen_load(scr_settings);
+    power_register_activity();
+}
+
+void ui_open_diagnostics() {
+    if (!scr_diag) scr_diag = make_util_screen(diagnostic_page_create);
+    diagnostic_page_refresh();
+    lv_screen_load(scr_diag);
+    power_register_activity();
+}
+
+void ui_open_ota() {
+    if (!scr_ota) scr_ota = make_util_screen(ota_page_create);
+    ota_page_refresh();
+    lv_screen_load(scr_ota);
+    power_register_activity();
+}
+
+void ui_open_dashboard() {
+    if (scr_dashboard) lv_screen_load(scr_dashboard);
+    power_register_activity();
 }
 
 void ui_set_page(int page_index) {

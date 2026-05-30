@@ -97,6 +97,7 @@ static void handleConnect() {
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+        watchdog_feed();   // this loop can block ~15s; keep the WDT fed
         delay(500);
         attempts++;
     }

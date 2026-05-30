@@ -13,7 +13,7 @@ from .collectors import (ClaudeCodeCollector, CodexCollector, GeminiCLICollector
                          CursorCollector, WindsurfCollector, SystemCollector)
 from .collectors.base import BaseCollector
 from .device_registry import DeviceRegistry
-from .pairing import PairingManager
+from .pairing import PairingManager, get_or_create_secret
 from .ota_server import OTAManager
 from .server.ws_server import StatusServer
 from .server.mdns import MDNSAdvertiser
@@ -76,7 +76,8 @@ async def run(cfg: AppConfig):
     collector_names = [c.name for c in collectors]
 
     registry = DeviceRegistry()
-    pairing_mgr = PairingManager(registry)
+    # Persisted secret so device pair tokens survive host restarts.
+    pairing_mgr = PairingManager(registry, secret=get_or_create_secret())
     ota = OTAManager()
 
     server = StatusServer(
@@ -161,6 +162,7 @@ async def run(cfg: AppConfig):
     logger.info(f"Registered devices: {len(registry.get_all())}")
     logger.info("Waiting for device connections...")
 
+    prev_active_tool = "idle"   # for active-tool hysteresis across polls
     try:
         while True:
             tools_data: dict = {}
@@ -187,15 +189,28 @@ async def run(cfg: AppConfig):
                 else:
                     tools_data[name] = data
 
-            # Pick the active tool with the most token usage
-            best_tokens = -1
-            for name, data in tools_data.items():
-                if data.get("status") != "active":
-                    continue
-                tokens = int(data.get("tokens_used") or 0)
-                if tokens > best_tokens:
-                    best_tokens = tokens
-                    active_tool = name
+            # Pick the tool actually being worked in: rank by live task state
+            # (working > waiting > idle), then recency of activity, then tokens.
+            # Pure token volume mis-picks (Claude's cache-token sum dwarfs others,
+            # and process-only tools always report 0).
+            _PRI = {"working": 3, "waiting": 2, "idle": 1}
+
+            def _score(d: dict):
+                return (_PRI.get(d.get("task_state") or "", 0),
+                        float(d.get("last_activity") or 0),
+                        int(d.get("tokens_used") or 0))
+
+            active_candidates = [(n, d) for n, d in tools_data.items()
+                                 if d.get("status") == "active"]
+            if active_candidates:
+                best_name, best_data = max(active_candidates, key=lambda nd: _score(nd[1]))
+                # Hysteresis: keep the current tool when it's still tied for best,
+                # so the headline doesn't flicker between two active tools.
+                cur = dict(active_candidates).get(prev_active_tool)
+                if cur is not None and _score(cur) >= _score(best_data):
+                    best_name = prev_active_tool
+                active_tool = best_name
+            prev_active_tool = active_tool
 
             # Broadcast to WS devices
             if server.device_count > 0:

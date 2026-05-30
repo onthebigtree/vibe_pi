@@ -67,6 +67,7 @@ static const I18nEntry strings[] = {
     {"dev_name",     "设备名称",               "Device Name"},
     {"about",        "关于",                   "About"},
     {"fw_ver",       "固件版本",               "Firmware Version"},
+    {"fw_update",    "固件更新",               "Firmware Update"},
     {"hw_info",      "硬件信息",               "Hardware Info"},
     {"mac_addr",     "MAC 地址",               "MAC Address"},
     {"pair_stat",    "配对状态",               "Pairing Status"},

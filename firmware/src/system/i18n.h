@@ -67,6 +67,7 @@ const char *i18n(const char *key);
 #define S_DEVICE_NAME         "dev_name"
 #define S_ABOUT               "about"
 #define S_FIRMWARE_VER        "fw_ver"
+#define S_FIRMWARE_UPDATE     "fw_update"
 #define S_HARDWARE_INFO       "hw_info"
 #define S_MAC_ADDRESS         "mac_addr"
 #define S_PAIR_STATUS         "pair_stat"

@@ -1,6 +1,9 @@
 #include "ws_client.h"
 #include "config.h"
 #include "../ui/ui_manager.h"
+#include "../ui/notification.h"
+#include "../ui/ota_page.h"
+#include "../system/i18n.h"
 #include "../system/settings_manager.h"
 #include "../system/pairing_manager.h"
 #include "../system/ota_manager.h"
@@ -73,6 +76,10 @@ static void handle_settings_sync(JsonObject &p) {
 
 static void handle_ota_available(JsonObject &p) {
     ota_on_available(p);
+    // Tell the user (was silent before) and keep the OTA page current so it's
+    // ready when they open Settings → Firmware Update to accept.
+    notif_show(i18n(S_UPDATE_AVAILABLE), NotifType::INFO, 5000);
+    ota_page_refresh();
 }
 
 static void handle_ota_start(JsonObject &p) {

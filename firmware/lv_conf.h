@@ -10,7 +10,8 @@
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_22 1
 #define LV_FONT_MONTSERRAT_28 1
-#define LV_FONT_MONTSERRAT_40 1   // hero token count on the overview
+#define LV_FONT_MONTSERRAT_40 1   // secondary hero size
+#define LV_FONT_MONTSERRAT_48 1   // overview hero % (focal point of the dial)
 
 // Widgets
 #define LV_USE_LABEL     1

@@ -6,10 +6,36 @@ import logging
 import secrets
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from .device_registry import DeviceRegistry
 
 logger = logging.getLogger("vibe-pi.pairing")
+
+SECRET_PATH = Path.home() / ".config" / "vibe-pi" / "secret.hex"
+
+
+def get_or_create_secret(path: Path = SECRET_PATH) -> str:
+    """Load the persistent HMAC pairing secret, creating it once if absent.
+
+    The secret MUST survive host restarts: every device's pair token is
+    hmac(secret, ...), so a fresh per-process secret would silently invalidate
+    every paired device on the next reboot."""
+    try:
+        if path.exists():
+            s = path.read_text().strip()
+            if s:
+                return s
+    except OSError as e:
+        logger.warning(f"Could not read pairing secret ({e}); regenerating")
+    secret = secrets.token_hex(32)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(secret)
+        path.chmod(0o600)
+    except OSError as e:
+        logger.error(f"Could not persist pairing secret ({e}); tokens won't survive restart")
+    return secret
 
 
 @dataclass

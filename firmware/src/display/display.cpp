@@ -33,6 +33,21 @@ static uint32_t my_tick_get(void) {
     return (uint32_t)millis();
 }
 
+// CO5300 QSPI memory-write window requires an even start and odd end on both
+// axes (the panel maps incoming pixels in 2-px groups). The column/row offsets
+// are even (6/0), so LVGL-coordinate parity maps straight through. Without this
+// rounding, an unaligned dirty rect mis-maps onto neighbouring columns/rows and
+// leaves the stale horizontal-line / "花花" residue. This is the real fix for
+// the artifact — with it, partial redraws are clean and we no longer need to
+// brute-force a full-screen invalidate on every update.
+static void disp_invalidate_rounder_cb(lv_event_t *e) {
+    lv_area_t *a = (lv_area_t *)lv_event_get_param(e);
+    a->x1 &= ~1;   // round start down to even
+    a->y1 &= ~1;
+    a->x2 |= 1;    // round end up to odd
+    a->y2 |= 1;
+}
+
 void display_init() {
     lv_init();
     lv_tick_set_cb(my_tick_get);
@@ -62,6 +77,8 @@ void display_init() {
 
     lv_disp = lv_display_create(cfg.width, cfg.height);
     lv_display_set_flush_cb(lv_disp, disp_flush_cb);
+    lv_display_add_event_cb(lv_disp, disp_invalidate_rounder_cb,
+                            LV_EVENT_INVALIDATE_AREA, nullptr);
     lv_display_set_buffers(lv_disp, buf1, buf2, buf_px * sizeof(lv_color_t),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
 

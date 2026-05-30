@@ -111,10 +111,15 @@ def make_status_compact(tools: dict, system: dict, active_tool: str) -> dict:
 
     Each tool gets the minimum fields needed to render its card. Target <500B
     with the 2KB ESP32 USB CDC RX buffer; fragments fine over multiple USB packets."""
+    now = int(time.time())
     compact_tools = {}
     for name, d in tools.items():
         if d.get("status") != "active":
             continue
+        # Send SECONDS-until-reset (not the epoch) so the device can render a
+        # countdown without needing a real-time clock.
+        r5_epoch = int(d.get("rl_5h_reset") or 0)
+        r7_epoch = int(d.get("rl_7d_reset") or 0)
         compact_tools[name] = {
             "status": "active",
             "tokens_display": (d.get("tokens_display") or "")[:8],
@@ -122,16 +127,29 @@ def make_status_compact(tools: dict, system: dict, active_tool: str) -> dict:
             "cost_rate_display": (d.get("cost_rate_display") or "")[:8],
             "model": (d.get("model") or "")[:24],
             "usage_pct": min(int(d.get("usage_pct") or 0), 999),
+            # Detail-page fields (full key names — the firmware reads these directly).
+            "current_task": (d.get("current_task") or "")[:40],
+            "session_count": int(d.get("session_count") or 0),
+            "uptime_min": int(d.get("uptime_min") or 0),
             # Task state + rolling 5h/7d usage windows (short keys to stay small).
             "task": (d.get("task_state") or "")[:8],
             "u5": (d.get("usage_5h_display") or "")[:8],
             "u7": (d.get("usage_7d_display") or "")[:8],
             "p5": min(int(d.get("usage_5h_pct") or 0), 100),  # numeric 5h % for inner ring
             "tasks": int(d.get("tasks") or 0),
+            "hq": 1 if d.get("has_quota") else 0,   # has real 5h/7d data (else N/A rings)
+            "st": 1 if d.get("rl_stale") else 0,    # rate-limit cache is stale
+            "r5": max(0, r5_epoch - now) if r5_epoch else 0,  # secs until 5h reset
+            "r7": max(0, r7_epoch - now) if r7_epoch else 0,  # secs until 7d reset
         }
     compact_sys = {
         "cpu_pct": min(int(system.get("cpu_pct") or 0), 100),
+        "gpu_pct": int(system.get("gpu_pct", -1)),   # -1 = N/A
         "mem_pct": min(int(system.get("mem_pct") or 0), 100),
+        "temp_c": int(system.get("temp_c", -1)),     # -1 = N/A
+        "disk_pct": min(int(system.get("disk_pct") or 0), 100),
+        "net_up_kbps": int(system.get("net_up_kbps") or 0),
+        "net_down_kbps": int(system.get("net_down_kbps") or 0),
     }
     return _msg(MsgType.STATUS, {
         "active_tool": active_tool,

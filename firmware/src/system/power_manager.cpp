@@ -8,6 +8,17 @@
 #include <esp_wifi.h>
 #include <esp_sleep.h>
 #include "../display/display.h"
+#include "../../drivers/power/axp2101.h"   // g_axp for VBUS detection
+
+// Defined in serial_config.cpp; declared here to avoid include coupling.
+extern bool serial_transport_is_active();
+
+// On external power (USB host attached or VBUS present) a desktop puck should
+// never deep-sleep: it must resume instantly on a glance and keep its host link
+// alive. Deep sleep is reserved for true battery operation.
+static bool on_external_power() {
+    return serial_transport_is_active() || g_axp.vbus_present();
+}
 
 static PowerState currentState = PowerState::ACTIVE;
 static unsigned long lastActivity = 0;
@@ -115,7 +126,7 @@ void power_loop() {
             break;
 
         case PowerState::SCREEN_OFF:
-            if (idle > DEEP_SLEEP_TIMEOUT_MS) {
+            if (idle > DEEP_SLEEP_TIMEOUT_MS && !on_external_power()) {
                 Serial.println("[Power] → DEEP_SLEEP (button to wake)");
                 Serial.flush();
                 display_set_brightness(0);
