@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-macapp = ["rumps>=0.4"]   # macOS menu bar app (see menubar/); bundle with py2app
+macapp = ["rumps>=0.4", "pywebview>=5.0"]   # macOS menu bar app + native dashboard window (see menubar/); bundle with py2app
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

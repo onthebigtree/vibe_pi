@@ -18,6 +18,7 @@ import os
 import plistlib
 import shutil
 import subprocess
+import sys
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -34,6 +35,9 @@ LAUNCH_AGENT_LABEL = "com.vibepi.host"
 LAUNCH_AGENT_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
 
 POLL_SECONDS = 3.0
+
+# Standalone pywebview dashboard window, launched as its own subprocess.
+WINDOW_SCRIPT = Path(__file__).resolve().parent / "window.py"
 
 
 def _api(path: str, timeout: float = 1.5):
@@ -61,6 +65,9 @@ class VibePiMenuBar(rumps.App):
         super().__init__("Vibe Pi", title="○", quit_button=None)
 
         self.proc: subprocess.Popen | None = None
+        # The native dashboard window runs in its own process (rumps and
+        # pywebview both want the main run loop — see open_window / window.py).
+        self.window_proc: subprocess.Popen | None = None
         self.online = False
         self.device_count = 0
 
@@ -69,6 +76,7 @@ class VibePiMenuBar(rumps.App):
         self.item_devices = rumps.MenuItem("Devices: —")
         self.item_toggle = rumps.MenuItem("Start Agent", callback=self.toggle_agent)
         self.item_dashboard = rumps.MenuItem("Open Dashboard", callback=self.open_dashboard)
+        self.item_window = rumps.MenuItem("Open Dashboard Window", callback=self.open_window)
         self.item_pair = rumps.MenuItem("Pair New Device…", callback=self.pair_device)
         self.item_token = rumps.MenuItem("Copy Remote Access Token", callback=self.copy_token)
         self.item_folder = rumps.MenuItem("Open Config Folder", callback=self.open_folder)
@@ -81,6 +89,7 @@ class VibePiMenuBar(rumps.App):
             None,
             self.item_toggle,
             self.item_dashboard,
+            self.item_window,
             self.item_pair,
             None,
             self.item_token,
@@ -104,6 +113,9 @@ class VibePiMenuBar(rumps.App):
 
     def _agent_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
+
+    def _window_alive(self) -> bool:
+        return self.window_proc is not None and self.window_proc.poll() is None
 
     def _refresh(self):
         # /api/status → {"connected_devices": N, "registered_devices": M}
@@ -168,6 +180,18 @@ class VibePiMenuBar(rumps.App):
             return
         webbrowser.open(API_BASE + "/")
 
+    def open_window(self, _):
+        # Launch the native dashboard window as a separate process. pywebview's
+        # run loop can't share this process with rumps, so window.py is its own
+        # app. A second click is a no-op while the previous window is still open;
+        # we only relaunch once that process has exited.
+        if self._window_alive():
+            return
+        try:
+            self.window_proc = subprocess.Popen([sys.executable, str(WINDOW_SCRIPT)])
+        except Exception as e:
+            rumps.alert("Vibe Pi", f"Failed to open dashboard window:\n{e}")
+
     def pair_device(self, _):
         if not self.online:
             rumps.alert("Vibe Pi", "Start the agent before pairing.")
@@ -214,6 +238,14 @@ class VibePiMenuBar(rumps.App):
 
     def quit_app(self, _):
         # Leave a login-launched agent running; only tear down what we started.
+        # The dashboard window is ours, though — close it on quit.
+        if self._window_alive():
+            self.window_proc.terminate()
+            try:
+                self.window_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.window_proc.kill()
+        self.window_proc = None
         self.stop_agent()
         rumps.quit_application()
 
