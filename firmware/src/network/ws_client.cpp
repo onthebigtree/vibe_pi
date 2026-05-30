@@ -55,6 +55,7 @@ static void handle_pair_reject(JsonObject &p) {
 }
 
 static void handle_unpair(JsonObject &p) {
+    if (!pairing_is_paired()) return;   // only a paired host can unpair
     pairing_unpair();
 }
 
@@ -64,7 +65,17 @@ static void handle_status(JsonObject &p) {
     ui_update_status(p);
 }
 
+// WiFi-borne mutating commands are only obeyed from a host we've PAIRED with.
+// (USB-serial commands go through serial_config.cpp and are trusted as physical
+// access — same model as the dashboard: localhost trusted, remote needs a token.)
+static bool ws_cmd_authorized(const char *what) {
+    if (pairing_is_paired()) return true;
+    Serial.printf("[WS] ignored '%s' — host not paired\n", what);
+    return false;
+}
+
 static void handle_settings_sync(JsonObject &p) {
+    if (!ws_cmd_authorized("settings_sync")) return;
     bool changed = settings_apply_sync(p);
     if (changed) {
         display_set_brightness(settings_get().brightness);
@@ -75,6 +86,7 @@ static void handle_settings_sync(JsonObject &p) {
 }
 
 static void handle_ota_available(JsonObject &p) {
+    if (!ws_cmd_authorized("ota_available")) return;
     ota_on_available(p);
     // Tell the user (was silent before) and keep the OTA page current so it's
     // ready when they open Settings → Firmware Update to accept.
@@ -83,10 +95,12 @@ static void handle_ota_available(JsonObject &p) {
 }
 
 static void handle_ota_start(JsonObject &p) {
+    if (!ws_cmd_authorized("ota_start")) return;
     ota_on_start(p);
 }
 
 static void handle_reset_command(JsonObject &p) {
+    if (!ws_cmd_authorized("reset_command")) return;
     int level = p["level"] | 0;
     const char *reason = p["reason"] | "";
     Serial.printf("[WS] Remote reset L%d: %s\n", level, reason);
@@ -94,6 +108,7 @@ static void handle_reset_command(JsonObject &p) {
 }
 
 static void handle_device_rename(JsonObject &p) {
+    if (!ws_cmd_authorized("device_rename")) return;
     const char *name = p["name"] | "";
     if (strlen(name) > 0) {
         strlcpy(settings_get().device_name, name, sizeof(settings_get().device_name));

@@ -81,6 +81,7 @@ static lv_obj_t *sys_lbl_cpu = nullptr;
 static lv_obj_t *sys_lbl_gpu = nullptr;
 static lv_obj_t *sys_lbl_mem = nullptr;
 static lv_obj_t *sys_lbl_net = nullptr;   // repurposed: temp + disk footer
+static lv_obj_t *sys_lbl_link = nullptr;  // connection mode: USB / WiFi / offline
 
 // ── State ──
 static int current_page = 0;
@@ -99,6 +100,15 @@ extern bool     axp_charging();
 extern bool     axp_vbus();
 
 void ui_update_battery() {
+    // Connection mode indicator (System page): which transport is live right now.
+    if (sys_lbl_link) {
+        const char *mode; lv_color_t c = CLR_TEXT_MUTED;
+        if (serial_transport_is_active())      mode = "Link: USB";
+        else if (ws_client_is_connected())     mode = "Link: WiFi";
+        else                                 { mode = "Link: offline"; c = CLR_WARNING; }
+        lv_label_set_text(sys_lbl_link, mode);
+        lv_obj_set_style_text_color(sys_lbl_link, c, 0);
+    }
     if (!battery_lbl) return;
     uint16_t mv = axp_voltage();
     if (mv == 0) {
@@ -897,6 +907,13 @@ static void create_system_tile() {
     lv_obj_set_style_text_color(title, CLR_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 60);
+
+    // Connection mode (USB / WiFi / offline), just under the title.
+    sys_lbl_link = lv_label_create(tile_system);
+    lv_label_set_text(sys_lbl_link, "");
+    lv_obj_set_style_text_color(sys_lbl_link, CLR_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(sys_lbl_link, &lv_font_montserrat_16, 0);
+    lv_obj_align(sys_lbl_link, LV_ALIGN_TOP_MID, 0, 88);
 
     // Three gauges in a triangle: CPU upper-left, GPU upper-right, MEM lower-centre.
     make_sys_gauge(&sys_arc_cpu, &sys_lbl_cpu, "CPU", -98, -48);
